@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  @page { size: A4; margin: 18mm 18mm 18mm 18mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 9pt; color: #222; }
+
+  /* ── Header ── */
+  table.header-table { width: 100%; border-collapse: collapse; margin-bottom: 14px; }
+  table.header-table td { vertical-align: top; }
+  td.logo-cell { width: 160px; }
+  td.logo-cell img { width: 140px; }
+  td.company-cell { text-align: right; font-size: 8.5pt; line-height: 1.5; }
+  td.company-cell .company-name { font-size: 11pt; font-weight: bold; }
+
+  /* ── Divider ── */
+  hr.divider { border: none; border-top: 1.5px solid #222; margin: 8px 0; }
+  hr.divider-thin { border: none; border-top: 0.5px solid #aaa; margin: 4px 0; }
+
+  /* ── Quote info block ── */
+  table.info-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+  table.info-table td { vertical-align: top; padding: 2px 0; }
+  .label { font-weight: bold; font-size: 8.5pt; color: #555; }
+  .value { font-size: 9pt; }
+
+  /* ── Items table ── */
+  table.items-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 8.5pt; }
+  table.items-table th {
+    background: #222;
+    color: #fff;
+    padding: 5px 6px;
+    text-align: left;
+    font-size: 8.5pt;
+  }
+  table.items-table th.center, table.items-table td.center { text-align: center; }
+  table.items-table th.right, table.items-table td.right   { text-align: right; }
+  table.items-table td { padding: 5px 6px; border-bottom: 0.5px solid #ddd; vertical-align: top; }
+  table.items-table tr.cat-header td {
+    background: #f0f0f0;
+    font-weight: bold;
+    padding: 4px 6px;
+    border-bottom: none;
+  }
+  table.items-table tr.total-row td {
+    border-top: 1.5px solid #222;
+    border-bottom: none;
+    font-weight: bold;
+    padding: 6px 6px;
+    font-size: 9pt;
+  }
+  col.col-desc  { width: 55%; }
+  col.col-qty   { width: 8%;  }
+  col.col-price { width: 18%; }
+  col.col-amt   { width: 19%; }
+
+  /* ── Payment block ── */
+  table.payment-table { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 8.5pt; }
+  table.payment-table td { padding: 2px 6px; vertical-align: top; }
+  .section-title { font-weight: bold; font-size: 9pt; margin-bottom: 4px; }
+
+  /* ── Terms ── */
+  .terms { font-size: 8pt; color: #444; margin-top: 12px; }
+  .terms ul { margin-left: 16px; }
+  .terms li { margin-bottom: 2px; }
+
+  /* ── Footer ── */
+  .footer { text-align: center; margin-top: 20px; font-size: 9pt; font-style: italic; color: #444; }
+</style>
+</head>
+<body>
+
+<!-- ── HEADER ─────────────────────────────────────────── -->
+<table class="header-table">
+  <tr>
+    <td class="logo-cell">
+      <img src="<?!= logoDataUri ?>" alt="WORQ Logo">
+    </td>
+    <td class="company-cell">
+      <div class="company-name"><?!= locationName ?></div>
+      <div><?!= locationCompany ?></div>
+      <div><?!= locationAddr ?></div>
+      <div><?!= locationEmail ?></div>
+    </td>
+  </tr>
+</table>
+
+<hr class="divider">
+
+<!-- ── QUOTATION INFO ─────────────────────────────────── -->
+<table class="info-table">
+  <tr>
+    <td style="width:50%">
+      <div style="font-size:14pt; font-weight:bold; margin-bottom:6px;">Quotation</div>
+    </td>
+    <td style="width:50%; text-align:right;">
+      <span class="label">Quotation Date:&nbsp;</span>
+      <span class="value"><?= quoteDate ?></span>
+    </td>
+  </tr>
+  <tr>
+    <td>
+      <div style="font-weight:bold; font-size:10pt;"><?= customerName ?></div>
+    </td>
+    <td style="text-align:right;">
+      <span class="label">Quotation No:&nbsp;</span>
+      <span class="value"><?= quoteNumber ?></span>
+    </td>
+  </tr>
+  <tr>
+    <td style="color:#555; font-size:8.5pt; padding-top:2px;">
+      <?!= customerAddr ?>
+    </td>
+    <td></td>
+  </tr>
+</table>
+
+<hr class="divider-thin">
+
+<!-- ── ITEMS TABLE ───────────────────────────────────── -->
+<table class="items-table">
+  <colgroup>
+    <col class="col-desc">
+    <col class="col-qty">
+    <col class="col-price">
+    <col class="col-amt">
+  </colgroup>
+  <thead>
+    <tr>
+      <th>Description</th>
+      <th class="center">Qty</th>
+      <th class="right">Unit Price (MYR)</th>
+      <th class="right">Amount (MYR)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <?!= itemRowsHtml ?>
+    <tr class="total-row">
+      <td colspan="3" class="right">TOTAL</td>
+      <td class="right">MYR <?= totalFormatted ?></td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ── PAYMENT DETAILS ───────────────────────────────── -->
+<table class="payment-table" style="margin-top:18px;">
+  <tr>
+    <td colspan="2"><div class="section-title">PAYMENT DETAILS</div></td>
+  </tr>
+  <tr>
+    <td style="width:30%; color:#555;">Bank</td>
+    <td>Malayan Banking Berhad (Maybank)</td>
+  </tr>
+  <tr>
+    <td style="color:#555;">Account Name</td>
+    <td>Worq KL Sdn Bhd</td>
+  </tr>
+  <tr>
+    <td style="color:#555;">Account No</td>
+    <td>512222641522</td>
+  </tr>
+  <tr>
+    <td style="color:#555;">SWIFT</td>
+    <td>MBBEMYKL</td>
+  </tr>
+  <tr>
+    <td style="color:#555;">Payment Reference</td>
+    <td><?= quoteNumber ?></td>
+  </tr>
+</table>
+
+<!-- ── TERMS & CONDITIONS ────────────────────────────── -->
+<div class="terms" style="margin-top:14px;">
+  <div class="section-title" style="color:#222;">Terms &amp; Conditions</div>
+  <ul>
+    <li>Warranty: 12 months (manufacturer warranty)</li>
+    <li>Quotation Validity: 30 days from quotation date</li>
+    <li>Payment Terms: 100% upon completion</li>
+    <li>Prices are subject to change without prior notice</li>
+  </ul>
+</div>
+
+<!-- ── FOOTER ────────────────────────────────────────── -->
+<div class="footer">
+  <p>Thank you — We really appreciate your business!</p>
+</div>
+
+</body>
+</html>

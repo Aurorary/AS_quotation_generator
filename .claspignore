@@ -1,0 +1,6 @@
+README.MD
+DOCUMENTATION.md
+.git/**
+node_modules/**
+*.json
+!appsscript.json

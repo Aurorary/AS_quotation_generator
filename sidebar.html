@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 12px; color: #222; padding: 10px; background: #fff; }
+
+  h2 { font-size: 14px; font-weight: bold; margin-bottom: 10px; color: #1a1a1a; }
+  .section-title { font-size: 11px; font-weight: bold; color: #555; text-transform: uppercase;
+                   letter-spacing: 0.5px; margin: 12px 0 6px; border-bottom: 1px solid #eee; padding-bottom: 3px; }
+
+  label { display: block; font-size: 11px; color: #444; margin-bottom: 2px; }
+  input[type=text], input[type=email], textarea, select {
+    width: 100%; padding: 5px 7px; border: 1px solid #ccc; border-radius: 3px;
+    font-size: 12px; margin-bottom: 6px; font-family: Arial, sans-serif;
+  }
+  textarea { resize: vertical; min-height: 48px; }
+  input[type=text]:focus, input[type=email]:focus, textarea:focus, select:focus {
+    outline: none; border-color: #4a90d9;
+  }
+  input[readonly] { background: #f5f5f5; color: #666; }
+
+  .row { display: flex; gap: 6px; align-items: flex-start; }
+  .row label { white-space: nowrap; }
+  .half { flex: 1; }
+
+  /* Markup radio group */
+  .markup-group { display: flex; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+  .markup-group label { display: flex; align-items: center; gap: 3px; font-size: 11px;
+                        cursor: pointer; margin: 0; white-space: nowrap; }
+
+  /* Catalogue search + list */
+  #catalogueSearch { margin-bottom: 4px; }
+  #catalogueList { width: 100%; height: 110px; font-size: 11px; border: 1px solid #ccc;
+                   border-radius: 3px; margin-bottom: 4px; }
+  #catalogueList option { padding: 3px 5px; }
+  #addItemBtn { width: 100%; padding: 5px; background: #4a90d9; color: #fff; border: none;
+                border-radius: 3px; cursor: pointer; font-size: 11px; margin-bottom: 10px; }
+  #addItemBtn:hover { background: #357abd; }
+
+  /* Items table */
+  table#itemsTable { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 4px; }
+  table#itemsTable th { background: #222; color: #fff; padding: 4px 4px; text-align: left; }
+  table#itemsTable th.c { text-align: center; }
+  table#itemsTable th.r { text-align: right; }
+  table#itemsTable td { border-bottom: 1px solid #eee; padding: 3px 4px; vertical-align: top; }
+  table#itemsTable td input { width: 100%; padding: 2px 4px; font-size: 11px; border: 1px solid #ddd;
+                               border-radius: 2px; text-align: right; }
+  table#itemsTable td.r { text-align: right; }
+  table#itemsTable td.c { text-align: center; }
+  .remove-btn { background: none; border: none; color: #c00; cursor: pointer; font-size: 13px;
+                line-height: 1; padding: 0 2px; }
+
+  /* Totals */
+  .totals-row { display: flex; justify-content: flex-end; gap: 20px; font-size: 12px;
+                margin: 4px 0 10px; }
+  .totals-row .total-label { color: #555; }
+  .totals-row .total-value { font-weight: bold; min-width: 80px; text-align: right; }
+
+  /* Generate button */
+  #generateBtn { width: 100%; padding: 9px; background: #2b7d2b; color: #fff; border: none;
+                 border-radius: 4px; font-size: 13px; font-weight: bold; cursor: pointer; margin-top: 4px; }
+  #generateBtn:hover:not(:disabled) { background: #236023; }
+  #generateBtn:disabled { background: #999; cursor: not-allowed; }
+
+  /* Status / result */
+  #status { margin-top: 8px; font-size: 11px; min-height: 18px; }
+  #status.error { color: #c00; }
+  #status.success { color: #2b7d2b; }
+  #status.info { color: #555; }
+
+  .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #ccc;
+             border-top-color: #4a90d9; border-radius: 50%; animation: spin 0.7s linear infinite;
+             vertical-align: middle; margin-right: 5px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .revision-field { display: none; }
+</style>
+</head>
+<body>
+
+<h2>WORQ Quotation Generator</h2>
+
+<!-- ── QUOTE DETAILS ─────────────────────────────────── -->
+<div class="section-title">Quote Details</div>
+
+<label>Location</label>
+<select id="locationSelect" onchange="onLocationChange()"></select>
+
+<label>Quote Number</label>
+<input type="text" id="quoteNumberDisplay" readonly>
+
+<label style="display:flex; align-items:center; gap:6px; margin-bottom:6px; cursor:pointer;">
+  <input type="checkbox" id="isRevision" onchange="onRevisionToggle()"> Is this a revision?
+</label>
+
+<div class="revision-field" id="revisionField">
+  <label>Revision Quote Number (edit if needed)</label>
+  <input type="text" id="revisionQuoteNumber">
+</div>
+
+<label>Date</label>
+<input type="text" id="quoteDate" readonly>
+
+<!-- ── CUSTOMER DETAILS ───────────────────────────────── -->
+<div class="section-title">Customer Details</div>
+
+<label>Company Name *</label>
+<input type="text" id="customerName" placeholder="e.g. Aquilius Investment Partners">
+
+<label>Work Description</label>
+<input type="text" id="workDesc" placeholder="e.g. Door access installation">
+
+<label>Address</label>
+<textarea id="customerAddress" placeholder="Full address (multi-line OK)"></textarea>
+
+<label>Email (for PDF delivery)</label>
+<input type="email" id="customerEmail" placeholder="customer@example.com">
+
+<!-- ── ITEMS ──────────────────────────────────────────── -->
+<div class="section-title">Items</div>
+
+<label>Markup</label>
+<div class="markup-group">
+  <label><input type="radio" name="markup" value="10"> 10%</label>
+  <label><input type="radio" name="markup" value="20"> 20%</label>
+  <label><input type="radio" name="markup" value="25"> 25%</label>
+  <label><input type="radio" name="markup" value="30" checked> 30% (default)</label>
+</div>
+
+<label>Search Catalogue</label>
+<input type="text" id="catalogueSearch" placeholder="Type to filter…" oninput="filterCatalogue()">
+<select id="catalogueList" size="7"></select>
+<button id="addItemBtn" onclick="addSelectedItem()">+ Add Item</button>
+
+<!-- Items table -->
+<table id="itemsTable">
+  <thead>
+    <tr>
+      <th style="width:38%">Description</th>
+      <th style="width:12%">Cat</th>
+      <th class="c" style="width:8%">Qty</th>
+      <th class="r" style="width:16%">Unit Price</th>
+      <th class="r" style="width:16%">Total</th>
+      <th style="width:10%"></th>
+    </tr>
+  </thead>
+  <tbody id="itemsBody">
+    <tr id="emptyRow"><td colspan="6" style="color:#aaa; text-align:center; padding:8px;">No items added</td></tr>
+  </tbody>
+</table>
+
+<div class="totals-row">
+  <span class="total-label">Cost Total:</span>
+  <span class="total-value" id="costTotal">MYR 0.00</span>
+</div>
+<div class="totals-row" style="margin-top:-8px;">
+  <span class="total-label">Quoted Total:</span>
+  <span class="total-value" id="quotedTotal" style="font-size:13px; color:#2b7d2b;">MYR 0.00</span>
+</div>
+
+<button id="generateBtn" onclick="submitQuotation()">Generate Quotation</button>
+<div id="status" class="info"></div>
+
+<script>
+// ── State ────────────────────────────────────────────────────
+var allCatalogueItems = [];
+var addedItems = [];          // { id, category, description, qty, unitPrice, costPrice, lineTotal }
+var locations = [];
+var nextItemId = 1;
+
+// ── Init ─────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+  setStatus('Loading…', 'info');
+  google.script.run
+    .withSuccessHandler(onInitialData)
+    .withFailureHandler(onError)
+    .getInitialData();
+
+  google.script.run
+    .withSuccessHandler(onCatalogueLoaded)
+    .withFailureHandler(onError)
+    .getCatalogueItems();
+});
+
+function onInitialData(data) {
+  locations = data.locations || [];
+  populateLocationDropdown(locations, data.defaultLocation);
+  document.getElementById('quoteNumberDisplay').value = data.quoteNumber || '';
+  document.getElementById('quoteDate').value = data.today || '';
+
+  // Pre-fill if a revision row was selected
+  if (data.selectedRow && data.selectedRow.quoteNumber) {
+    document.getElementById('isRevision').checked = true;
+    onRevisionToggle();
+    document.getElementById('revisionQuoteNumber').value = buildRevisionNumber(data.selectedRow.quoteNumber);
+    // Set location to match existing quote
+    if (data.selectedRow.locationCode) {
+      document.getElementById('locationSelect').value = data.selectedRow.locationCode;
+    }
+    document.getElementById('customerName').value = data.selectedRow.customer || '';
+  }
+
+  setStatus('', '');
+}
+
+function onCatalogueLoaded(items) {
+  allCatalogueItems = items || [];
+  renderCatalogueList(allCatalogueItems);
+}
+
+// ── Location dropdown ────────────────────────────────────────
+function populateLocationDropdown(locs, defaultCode) {
+  var sel = document.getElementById('locationSelect');
+  sel.innerHTML = '';
+  locs.forEach(function(l) {
+    var opt = document.createElement('option');
+    opt.value = l.code;
+    // Parse first line of fullAddress as location name
+    var lines = l.fullAddress.split('\n');
+    opt.textContent = lines[0] + ' (' + l.code + ')';
+    sel.appendChild(opt);
+  });
+  if (defaultCode) sel.value = defaultCode;
+}
+
+function onLocationChange() {
+  if (document.getElementById('isRevision').checked) return;
+  var code = document.getElementById('locationSelect').value;
+  document.getElementById('quoteNumberDisplay').value = 'Loading…';
+  google.script.run
+    .withSuccessHandler(function(qn) {
+      document.getElementById('quoteNumberDisplay').value = qn;
+    })
+    .withFailureHandler(onError)
+    .getNextQuoteNumber(code);
+}
+
+// ── Revision ─────────────────────────────────────────────────
+function onRevisionToggle() {
+  var checked = document.getElementById('isRevision').checked;
+  document.getElementById('revisionField').style.display = checked ? 'block' : 'none';
+  if (!checked) {
+    // Restore auto-generated number
+    onLocationChange();
+  }
+}
+
+function buildRevisionNumber(existing) {
+  // Strip existing revision suffix, then increment
+  var match = existing.match(/^(.*)\s+rev(\d+)$/i);
+  if (match) {
+    return match[1] + ' rev' + (parseInt(match[2], 10) + 1);
+  }
+  // No existing revision
+  var clean = existing.replace(/\s+rev\d+$/i, '').trim();
+  return clean + ' rev1';
+}
+
+// ── Catalogue ────────────────────────────────────────────────
+function renderCatalogueList(items) {
+  var list = document.getElementById('catalogueList');
+  list.innerHTML = '';
+  if (items.length === 0) {
+    var opt = document.createElement('option');
+    opt.disabled = true;
+    opt.textContent = '— no items found —';
+    list.appendChild(opt);
+    return;
+  }
+  items.forEach(function(item, idx) {
+    var opt = document.createElement('option');
+    opt.value = idx;
+    opt.textContent = '[' + item.category + '] ' + (item.brand ? item.brand + ' — ' : '') + item.description.split('\n')[0];
+    list.appendChild(opt);
+  });
+}
+
+function filterCatalogue() {
+  var q = document.getElementById('catalogueSearch').value.toLowerCase().trim();
+  if (!q) {
+    renderCatalogueList(allCatalogueItems);
+    return;
+  }
+  var filtered = allCatalogueItems.filter(function(item) {
+    return (item.category + ' ' + item.brand + ' ' + item.description).toLowerCase().indexOf(q) !== -1;
+  });
+  renderCatalogueList(filtered);
+}
+
+function addSelectedItem() {
+  var list = document.getElementById('catalogueList');
+  var selectedOpt = list.options[list.selectedIndex];
+  if (!selectedOpt || selectedOpt.disabled) return;
+
+  var idx = parseInt(selectedOpt.value, 10);
+  var item = allCatalogueItems[idx];
+  if (!item) return;
+
+  var markup = getMarkup();
+  var unitPrice = computeSellingPrice(item.costPrice, markup);
+
+  addedItems.push({
+    id: nextItemId++,
+    category: item.category,
+    description: item.description,
+    qty: 1,
+    unitPrice: unitPrice,
+    costPrice: item.costPrice,
+    lineTotal: unitPrice
+  });
+
+  renderItemsTable();
+  recalcTotals();
+}
+
+// ── Items table ───────────────────────────────────────────────
+function renderItemsTable() {
+  var tbody = document.getElementById('itemsBody');
+  tbody.innerHTML = '';
+
+  if (addedItems.length === 0) {
+    var tr = document.createElement('tr');
+    tr.id = 'emptyRow';
+    tr.innerHTML = '<td colspan="6" style="color:#aaa; text-align:center; padding:8px;">No items added</td>';
+    tbody.appendChild(tr);
+    return;
+  }
+
+  addedItems.forEach(function(item) {
+    var tr = document.createElement('tr');
+    var descShort = item.description.split('\n')[0];
+    tr.innerHTML =
+      '<td title="' + escHtml(item.description) + '">' + escHtml(descShort) + '</td>' +
+      '<td style="font-size:10px; color:#666;">' + escHtml(item.category) + '</td>' +
+      '<td class="c"><input type="number" min="1" value="' + item.qty + '" style="width:40px; text-align:center;" onchange="onQtyChange(' + item.id + ', this.value)"></td>' +
+      '<td class="r"><input type="number" min="0" step="0.01" value="' + item.unitPrice.toFixed(2) + '" style="width:68px;" onchange="onPriceChange(' + item.id + ', this.value)"></td>' +
+      '<td class="r">' + formatMyr(item.lineTotal) + '</td>' +
+      '<td class="c"><button class="remove-btn" onclick="removeItem(' + item.id + ')" title="Remove">✕</button></td>';
+    tbody.appendChild(tr);
+  });
+}
+
+function onQtyChange(id, val) {
+  var item = addedItems.find(function(i) { return i.id === id; });
+  if (!item) return;
+  item.qty = Math.max(1, parseInt(val, 10) || 1);
+  item.lineTotal = round2(item.qty * item.unitPrice);
+  renderItemsTable();
+  recalcTotals();
+}
+
+function onPriceChange(id, val) {
+  var item = addedItems.find(function(i) { return i.id === id; });
+  if (!item) return;
+  item.unitPrice = parseFloat(val) || 0;
+  item.lineTotal = round2(item.qty * item.unitPrice);
+  renderItemsTable();
+  recalcTotals();
+}
+
+function removeItem(id) {
+  addedItems = addedItems.filter(function(i) { return i.id !== id; });
+  renderItemsTable();
+  recalcTotals();
+}
+
+// ── Markup ───────────────────────────────────────────────────
+document.querySelectorAll('input[name=markup]').forEach(function(radio) {
+  radio.addEventListener('change', function() {
+    var markup = parseInt(this.value, 10);
+    addedItems.forEach(function(item) {
+      item.unitPrice = computeSellingPrice(item.costPrice, markup);
+      item.lineTotal = round2(item.qty * item.unitPrice);
+    });
+    renderItemsTable();
+    recalcTotals();
+  });
+});
+
+function getMarkup() {
+  var checked = document.querySelector('input[name=markup]:checked');
+  return checked ? parseInt(checked.value, 10) : 30;
+}
+
+function computeSellingPrice(costPrice, markupPct) {
+  if (!costPrice) return 0;
+  var divisor = 1 - (markupPct / 100);
+  return round2(costPrice / divisor);
+}
+
+// ── Totals ───────────────────────────────────────────────────
+function recalcTotals() {
+  var quotedSum = 0, costSum = 0;
+  addedItems.forEach(function(item) {
+    quotedSum += item.lineTotal;
+    costSum += round2(item.costPrice * item.qty);
+  });
+  document.getElementById('quotedTotal').textContent = 'MYR ' + formatMyr(quotedSum);
+  document.getElementById('costTotal').textContent   = 'MYR ' + formatMyr(costSum);
+}
+
+// ── Submit ───────────────────────────────────────────────────
+function submitQuotation() {
+  var customerName = document.getElementById('customerName').value.trim();
+  if (!customerName) { setStatus('Please enter a company name.', 'error'); return; }
+  if (addedItems.length === 0) { setStatus('Please add at least one item.', 'error'); return; }
+
+  var isRevision = document.getElementById('isRevision').checked;
+  var quoteNumber = isRevision
+    ? document.getElementById('revisionQuoteNumber').value.trim()
+    : document.getElementById('quoteNumberDisplay').value.trim();
+
+  if (!quoteNumber) { setStatus('Quote number is missing.', 'error'); return; }
+
+  var quotedSum = 0, costSum = 0;
+  addedItems.forEach(function(item) {
+    quotedSum += item.lineTotal;
+    costSum += round2(item.costPrice * item.qty);
+  });
+
+  // Determine rowIndex from selectedRow (if any)
+  var rowIndex = null;
+  // We stored it on window during init if needed
+  if (window._selectedRow) rowIndex = window._selectedRow.rowIndex;
+
+  var payload = {
+    rowIndex: rowIndex,
+    locationCode: document.getElementById('locationSelect').value,
+    quoteNumber: quoteNumber,
+    isRevision: isRevision,
+    quoteDate: document.getElementById('quoteDate').value,
+    customerName: customerName,
+    work: document.getElementById('workDesc').value.trim(),
+    customerAddress: document.getElementById('customerAddress').value.trim(),
+    customerEmail: document.getElementById('customerEmail').value.trim(),
+    markupPct: getMarkup(),
+    items: addedItems.map(function(item) {
+      return {
+        description: item.description,
+        category: item.category,
+        qty: item.qty,
+        unitPrice: item.unitPrice,
+        catalogueCostPrice: item.costPrice,
+        lineTotal: item.lineTotal
+      };
+    }),
+    quotedPrice: round2(quotedSum),
+    costPrice: round2(costSum)
+  };
+
+  document.getElementById('generateBtn').disabled = true;
+  setStatus('<span class="spinner"></span> Generating quotation…', 'info');
+
+  google.script.run
+    .withSuccessHandler(onGenerateDone)
+    .withFailureHandler(onGenerateError)
+    .generateQuotation(payload);
+}
+
+function onGenerateDone(result) {
+  document.getElementById('generateBtn').disabled = false;
+  if (result.success) {
+    setStatus('✓ Quotation generated! <a href="' + result.pdfUrl + '" target="_blank">Open PDF</a>', 'success');
+    window.open(result.pdfUrl, '_blank');
+  } else {
+    setStatus('Error: ' + (result.error || 'Unknown error'), 'error');
+  }
+}
+
+function onGenerateError(err) {
+  document.getElementById('generateBtn').disabled = false;
+  setStatus('Error: ' + err.message, 'error');
+}
+
+function onError(err) {
+  setStatus('Error: ' + (err.message || err), 'error');
+}
+
+// ── Helpers ──────────────────────────────────────────────────
+function setStatus(html, cls) {
+  var el = document.getElementById('status');
+  el.innerHTML = html;
+  el.className = cls;
+}
+
+function formatMyr(val) {
+  var n = parseFloat(val) || 0;
+  return n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function round2(v) {
+  return Math.round(v * 100) / 100;
+}
+
+function escHtml(str) {
+  return (str || '').toString()
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// Store selectedRow for use in submitQuotation
+var _origOnInitialData = onInitialData;
+function onInitialData(data) {
+  if (data.selectedRow) window._selectedRow = data.selectedRow;
+  _origOnInitialData(data);
+}
+</script>
+</body>
+</html>

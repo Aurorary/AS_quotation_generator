@@ -163,6 +163,15 @@
 <button id="generateBtn" onclick="submitQuotation()">Generate Quotation</button>
 <div id="status" class="info"></div>
 
+<!-- ── PREVIEW PANEL ──────────────────────────────────── -->
+<div id="previewPanel" style="display:none; margin-top:10px;">
+  <div style="display:flex; gap:6px; margin-bottom:8px;">
+    <button id="backBtn" onclick="backToForm()" style="flex:1; padding:8px; background:#888; color:#fff; border:none; border-radius:4px; font-size:12px; cursor:pointer;">← Back & Edit</button>
+    <button id="confirmBtn" onclick="confirmQuotation()" style="flex:2; padding:8px; background:#2b7d2b; color:#fff; border:none; border-radius:4px; font-size:13px; font-weight:bold; cursor:pointer;">Confirm & Send</button>
+  </div>
+  <iframe id="previewFrame" style="width:100%; height:600px; border:1px solid #ccc; border-radius:3px;"></iframe>
+</div>
+
 <script>
 // ── State ────────────────────────────────────────────────────
 var allCatalogueItems = [];
@@ -185,6 +194,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function onInitialData(data) {
+  if (data.selectedRow) window._selectedRow = data.selectedRow;
   locations = data.locations || [];
   populateLocationDropdown(locations, data.defaultLocation);
   document.getElementById('quoteNumberDisplay').value = data.quoteNumber || '';
@@ -299,15 +309,18 @@ function addSelectedItem() {
   if (!item) return;
 
   var markup = getMarkup();
-  var unitPrice = computeSellingPrice(item.costPrice, markup);
+  // Use catalogue's pre-calculated price if available, otherwise compute from cost
+  var unitPrice = item.price > 0 ? item.price : computeSellingPrice(item.costPrice, markup);
 
   addedItems.push({
     id: nextItemId++,
     category: item.category,
     description: item.description,
+    subRows: item.subRows || [],
     qty: 1,
     unitPrice: unitPrice,
     costPrice: item.costPrice,
+    cataloguePrice: item.price,
     lineTotal: unitPrice
   });
 
@@ -371,7 +384,7 @@ document.querySelectorAll('input[name=markup]').forEach(function(radio) {
   radio.addEventListener('change', function() {
     var markup = parseInt(this.value, 10);
     addedItems.forEach(function(item) {
-      item.unitPrice = computeSellingPrice(item.costPrice, markup);
+      item.unitPrice = item.cataloguePrice > 0 ? item.cataloguePrice : computeSellingPrice(item.costPrice, markup);
       item.lineTotal = round2(item.qty * item.unitPrice);
     });
     renderItemsTable();
@@ -387,7 +400,9 @@ function getMarkup() {
 function computeSellingPrice(costPrice, markupPct) {
   if (!costPrice) return 0;
   var divisor = 1 - (markupPct / 100);
-  return round2(costPrice / divisor);
+  var raw = costPrice / divisor;
+  // Match catalogue formula: roundup(cost/divisor, -2) — round up to nearest 100
+  return Math.ceil(raw / 100) * 100;
 }
 
 // ── Totals ───────────────────────────────────────────────────
@@ -401,18 +416,17 @@ function recalcTotals() {
   document.getElementById('costTotal').textContent   = 'MYR ' + formatMyr(costSum);
 }
 
-// ── Submit ───────────────────────────────────────────────────
-function submitQuotation() {
+// ── Build payload ─────────────────────────────────────────────
+function buildPayload() {
   var customerName = document.getElementById('customerName').value.trim();
-  if (!customerName) { setStatus('Please enter a company name.', 'error'); return; }
-  if (addedItems.length === 0) { setStatus('Please add at least one item.', 'error'); return; }
+  if (!customerName) { setStatus('Please enter a company name.', 'error'); return null; }
+  if (addedItems.length === 0) { setStatus('Please add at least one item.', 'error'); return null; }
 
   var isRevision = document.getElementById('isRevision').checked;
   var quoteNumber = isRevision
     ? document.getElementById('revisionQuoteNumber').value.trim()
     : document.getElementById('quoteNumberDisplay').value.trim();
-
-  if (!quoteNumber) { setStatus('Quote number is missing.', 'error'); return; }
+  if (!quoteNumber) { setStatus('Quote number is missing.', 'error'); return null; }
 
   var quotedSum = 0, costSum = 0;
   addedItems.forEach(function(item) {
@@ -420,12 +434,10 @@ function submitQuotation() {
     costSum += round2(item.costPrice * item.qty);
   });
 
-  // Determine rowIndex from selectedRow (if any)
   var rowIndex = null;
-  // We stored it on window during init if needed
   if (window._selectedRow) rowIndex = window._selectedRow.rowIndex;
 
-  var payload = {
+  return {
     rowIndex: rowIndex,
     locationCode: document.getElementById('locationSelect').value,
     quoteNumber: quoteNumber,
@@ -439,6 +451,7 @@ function submitQuotation() {
     items: addedItems.map(function(item) {
       return {
         description: item.description,
+        subRows: item.subRows || [],
         category: item.category,
         qty: item.qty,
         unitPrice: item.unitPrice,
@@ -449,28 +462,75 @@ function submitQuotation() {
     quotedPrice: round2(quotedSum),
     costPrice: round2(costSum)
   };
-
-  document.getElementById('generateBtn').disabled = true;
-  setStatus('<span class="spinner"></span> Generating quotation…', 'info');
-
-  google.script.run
-    .withSuccessHandler(onGenerateDone)
-    .withFailureHandler(onGenerateError)
-    .generateQuotation(payload);
 }
 
-function onGenerateDone(result) {
+// ── Step 1: Preview ───────────────────────────────────────────
+function submitQuotation() {
+  var payload = buildPayload();
+  if (!payload) return;
+
+  document.getElementById('generateBtn').disabled = true;
+  setStatus('<span class="spinner"></span> Building preview…', 'info');
+
+  google.script.run
+    .withSuccessHandler(onPreviewDone)
+    .withFailureHandler(onGenerateError)
+    .previewQuotation(payload);
+}
+
+function onPreviewDone(result) {
   document.getElementById('generateBtn').disabled = false;
+  if (!result.success) { setStatus('Error: ' + (result.error || 'Unknown error'), 'error'); return; }
+
+  // Show preview panel, hide form elements
+  document.getElementById('previewPanel').style.display = 'block';
+  document.getElementById('generateBtn').style.display = 'none';
+  setStatus('Review the quotation below, then confirm to send.', 'info');
+
+  // Load HTML into iframe via blob URL
+  var blob = new Blob([result.html], { type: 'text/html' });
+  var url = URL.createObjectURL(blob);
+  document.getElementById('previewFrame').src = url;
+}
+
+// ── Step 2: Confirm & Send ────────────────────────────────────
+function confirmQuotation() {
+  document.getElementById('confirmBtn').disabled = true;
+  document.getElementById('backBtn').disabled = true;
+  setStatus('<span class="spinner"></span> Saving and sending…', 'info');
+
+  google.script.run
+    .withSuccessHandler(onConfirmDone)
+    .withFailureHandler(onGenerateError)
+    .confirmQuotation();
+}
+
+function onConfirmDone(result) {
+  document.getElementById('confirmBtn').disabled = false;
+  document.getElementById('backBtn').disabled = false;
   if (result.success) {
-    setStatus('✓ Quotation generated! <a href="' + result.pdfUrl + '" target="_blank">Open PDF</a>', 'success');
-    window.open(result.pdfUrl, '_blank');
+    setStatus('✓ Sent! <a href="' + result.pdfUrl + '" target="_blank">Open PDF</a>', 'success');
+    document.getElementById('confirmBtn').style.display = 'none';
+    document.getElementById('backBtn').textContent = '← Start New';
+    document.getElementById('backBtn').onclick = function() { location.reload(); };
   } else {
     setStatus('Error: ' + (result.error || 'Unknown error'), 'error');
   }
 }
 
+// ── Back to form ──────────────────────────────────────────────
+function backToForm() {
+  document.getElementById('previewPanel').style.display = 'none';
+  document.getElementById('generateBtn').style.display = 'block';
+  document.getElementById('generateBtn').disabled = false;
+  document.getElementById('confirmBtn').disabled = false;
+  document.getElementById('backBtn').disabled = false;
+  setStatus('', '');
+}
+
 function onGenerateError(err) {
   document.getElementById('generateBtn').disabled = false;
+  document.getElementById('confirmBtn') && (document.getElementById('confirmBtn').disabled = false);
   setStatus('Error: ' + err.message, 'error');
 }
 
@@ -502,12 +562,6 @@ function escHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
-// Store selectedRow for use in submitQuotation
-var _origOnInitialData = onInitialData;
-function onInitialData(data) {
-  if (data.selectedRow) window._selectedRow = data.selectedRow;
-  _origOnInitialData(data);
-}
 </script>
 </body>
 </html>

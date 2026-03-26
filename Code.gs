@@ -7,20 +7,58 @@ function getProp(key) {
   return PropertiesService.getScriptProperties().getProperty(key);
 }
 
+// ── Debug: log what getLocations actually reads ──────────────
+function debugLocations() {
+  const tabName = getProp('ADDRESS_TAB_NAME') || 'ADDRESS';
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  Logger.log('Looking for tab: ' + tabName);
+  Logger.log('All tabs: ' + ss.getSheets().map(function(s){ return s.getName(); }).join(', '));
+  const sheet = ss.getSheetByName(tabName);
+  if (!sheet) { Logger.log('TAB NOT FOUND'); return; }
+  const rows = sheet.getDataRange().getValues();
+  Logger.log('Total rows: ' + rows.length);
+  Logger.log('Row 0 (header): ' + JSON.stringify(rows[0]));
+  if (rows.length > 1) Logger.log('Row 1: ' + JSON.stringify(rows[1]));
+  if (rows.length > 2) Logger.log('Row 2: ' + JSON.stringify(rows[2]));
+  Logger.log('getLocations result: ' + JSON.stringify(getLocations()));
+}
+
+// ── One-time setup — run this once to set all Script Properties ──
+function setupScriptProperties() {
+  PropertiesService.getScriptProperties().setProperties({
+    'TRACKER_SHEET_TAB':  'NEW COMBINED',
+    'ADDRESS_TAB_NAME':   'ADDRESS',
+    'CATALOGUE_SHEET_ID': '1aqTyUVxbtaDQh9vzuzxsZAZYl5AM1oyli4vbWZZNSps',
+    'CATALOGUE_TAB_NAME': 'Hardware & Services',
+    'LOGO_FILE_ID':           '1e1WWzk00qzDRwA82uWOTYZFHjYidP5Q7',
+    'QUOTATIONS_FOLDER_ID':   '1HgsVQlCmjTOF8jn0l77iRq5_6ViCqHP5'
+  });
+  CacheService.getScriptCache().removeAll(['catalogue', 'logoDataUri']);
+  Logger.log('Script properties set and cache cleared.');
+}
+
 // ── Menu ────────────────────────────────────────────────────
 function onOpen() {
   SpreadsheetApp.getUi()
-    .createMenu('WORQ Tools')
+    .createMenu('Quotation Generator')
     .addItem('Generate Quotation', 'openSidebar')
+    .addSeparator()
+    .addItem('Clear Cache', 'clearCache')
     .addToUi();
 }
 
-// ── Open sidebar ────────────────────────────────────────────
+function clearCache() {
+  CacheService.getScriptCache().removeAll(['catalogue', 'logoDataUri']);
+  SpreadsheetApp.getUi().alert('Cache cleared. Catalogue will reload fresh on next open.');
+}
+
+// ── Open modal dialog ────────────────────────────────────────
 function openSidebar() {
   const html = HtmlService.createHtmlOutputFromFile('sidebar')
-    .setTitle('WORQ Quotation Generator')
-    .setWidth(420);
-  SpreadsheetApp.getUi().showSidebar(html);
+    .setTitle('Quotation Generator')
+    .setWidth(1000)
+    .setHeight(750);
+  SpreadsheetApp.getUi().showModalDialog(html, 'Quotation Generator');
 }
 
 // ── Get selected row data (for revision pre-fill) ───────────
@@ -82,11 +120,14 @@ function getNextQuoteNumber(locationCode) {
 
 // ── Fetch locations from ADDRESS tab ────────────────────────
 function getLocations() {
-  const sheetId = getProp('ADDRESS_SHEET_ID');
   const tabName = getProp('ADDRESS_TAB_NAME') || 'ADDRESS';
 
-  const ss = SpreadsheetApp.openById(sheetId);
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
   const sheet = ss.getSheetByName(tabName);
+  if (!sheet) {
+    Logger.log('ERROR: Cannot find tab "' + tabName + '". Available tabs: ' + ss.getSheets().map(function(s){ return s.getName(); }).join(', '));
+    return [];
+  }
   const rows = sheet.getDataRange().getValues();
 
   // Row 0 = header; skip rows with blank code
@@ -97,7 +138,8 @@ function getLocations() {
     locations.push({
       code: code,
       fullAddress: rows[i][1] ? rows[i][1].toString().trim() : '',
-      email: rows[i][2] ? rows[i][2].toString().trim() : ''
+      email: rows[i][2] ? rows[i][2].toString().trim() : '',
+      accountNo: rows[i][3] ? rows[i][3].toString().trim() : ''
     });
   }
   return locations;

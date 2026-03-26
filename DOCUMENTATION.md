@@ -2,18 +2,17 @@
 
 ## Overview
 
-Automate the WORQ KL quotation workflow using Google Apps Script (clasp-managed). A sidebar in the Tracker Google Sheet lets the team pick items from the product catalogue, input customer details, auto-assign a quote number, then generate a PDF — which is saved to Drive, emailed to the customer, and logged back in the tracker.
+Automate the WORQ KL quotation workflow using Google Apps Script (clasp-managed). A modal dialog in the Tracker Google Sheet lets the team pick items from the product catalogue, input customer details, auto-assign a quote number, preview the quotation, then confirm — which generates a PDF saved to Drive, emails it to the customer, and logs everything back to the tracker.
 
 ---
 
-## Architecture Decision: Two Separate Sheets (Keep As-Is)
+## Architecture
 
 | File | Purpose |
 |---|---|
-| **Quotation Tracker** | Management view — one row per quote, filtered/sorted by team and management |
-| **Quotation Template** | Holds individual quotation tabs + the ADDRESS config tab |
-
-**Do NOT merge them.** Keeping them separate prevents the tracker from becoming bloated as quotation tabs accumulate over time. The Apps Script binds to the Tracker and writes document links back to the Template file.
+| **Quotation Tracker** | Management view — one row per quote, script is bound here |
+| **Price Catalogue** | Separate sheet — hardware & services items, cost prices, selling prices |
+| **ADDRESS tab** | Moved into the Tracker sheet — outlet codes, addresses, emails, account numbers |
 
 ---
 
@@ -21,9 +20,10 @@ Automate the WORQ KL quotation workflow using Google Apps Script (clasp-managed)
 
 - **Google Apps Script** (bound to Tracker spreadsheet)
 - **clasp** — local development and push
-- **HTML Service** — sidebar UI (opens inside Google Sheets)
+- **HTML Service** — modal dialog UI (1000×750px, opens inside Google Sheets)
 - **DriveApp** — HTML → PDF conversion + file storage
 - **GmailApp** — send PDF to customer
+- **CacheService** — catalogue cached 10 min, logo cached 6 hours
 
 ---
 
@@ -32,8 +32,7 @@ Automate the WORQ KL quotation workflow using Google Apps Script (clasp-managed)
 | Resource | Spreadsheet ID | Tab |
 |---|---|---|
 | **Quotation Tracker** | `1DbX1hTx8pHoqzyRZ5AuikECJf2CSC2f__T8k2htZtG0` | `NEW COMBINED` |
-| **Quotation Template** | `1a9ggAV7RN796FgFM9d5rQ-qIAGKAYGkDycK8l0CeKoY` | `QUOTATION TEMPLATE` |
-| **Address / Locations** | `1a9ggAV7RN796FgFM9d5rQ-qIAGKAYGkDycK8l0CeKoY` | `ADDRESS` |
+| **Address / Locations** | `1DbX1hTx8pHoqzyRZ5AuikECJf2CSC2f__T8k2htZtG0` | `ADDRESS` (same as tracker) |
 | **Price Catalogue** | `1aqTyUVxbtaDQh9vzuzxsZAZYl5AM1oyli4vbWZZNSps` | `Hardware & Services` |
 
 ## Other Resources
@@ -41,24 +40,24 @@ Automate the WORQ KL quotation workflow using Google Apps Script (clasp-managed)
 | Resource | ID |
 |---|---|
 | **WORQ Logo (Google Drive file)** | `1e1WWzk00qzDRwA82uWOTYZFHjYidP5Q7` |
-| **Quotations Drive Folder** | `1Zs1dTaiO7dy7tyCoHZpSNgrWDz5bK3Zw` |
+| **Quotations Drive Folder** | `1HgsVQlCmjTOF8jn0l77iRq5_6ViCqHP5` |
 
 > All IDs are stored as **Script Properties** in Apps Script — nothing hardcoded in code files.
 
 ---
 
-## Script Properties (set once in Apps Script Project Settings)
+## Script Properties (set once via `setupScriptProperties`)
 
 | Key | Value |
 |---|---|
 | `TRACKER_SHEET_TAB` | `NEW COMBINED` |
-| `TEMPLATE_SHEET_ID` | `1a9ggAV7RN796FgFM9d5rQ-qIAGKAYGkDycK8l0CeKoY` |
+| `ADDRESS_TAB_NAME` | `ADDRESS` |
 | `CATALOGUE_SHEET_ID` | `1aqTyUVxbtaDQh9vzuzxsZAZYl5AM1oyli4vbWZZNSps` |
 | `CATALOGUE_TAB_NAME` | `Hardware & Services` |
-| `ADDRESS_SHEET_ID` | `1a9ggAV7RN796FgFM9d5rQ-qIAGKAYGkDycK8l0CeKoY` |
-| `ADDRESS_TAB_NAME` | `ADDRESS` |
-| `QUOTATIONS_FOLDER_ID` | `1Zs1dTaiO7dy7tyCoHZpSNgrWDz5bK3Zw` |
+| `QUOTATIONS_FOLDER_ID` | `1HgsVQlCmjTOF8jn0l77iRq5_6ViCqHP5` |
 | `LOGO_FILE_ID` | `1e1WWzk00qzDRwA82uWOTYZFHjYidP5Q7` |
+
+Run `setupScriptProperties()` from the Apps Script editor once to set all values. Re-run anytime to reset.
 
 ---
 
@@ -74,28 +73,21 @@ Automate the WORQ KL quotation workflow using Google Apps Script (clasp-managed)
 | F | Document Link | Drive PDF link — written back by script |
 | G | Quoted Price | Written back by script |
 | H | Cost Price | Written back by script (internal only) |
-| I | Profit | Formula: G - H |
-| J | Margin | Formula: I / G |
-| K | Billed? | Dropdown: Yes / Pending Customer / Cancelled |
+| I | Profit | Written back by script (G - H) |
+| J | Margin | Written back by script (I / G as %) |
+| K | Billed? | Dropdown: Yes / Pending Customer / Pending Bill / Cancelled — default: Pending Customer |
+
+Every quotation (new or revision) always appends a **new row**. Revisions are identified by the Rev suffix in the quote number.
 
 ---
 
-## Locations (ADDRESS tab of Template Sheet)
+## ADDRESS Tab Structure (in Tracker sheet)
 
-Fetched **dynamically at runtime** — team updates the sheet, no code changes needed.
+**Columns:** A = Outlet Code | B = Full Address (multi-line) | C = Outlet Email | D = Account No
 
-**Columns:** A = Outlet Code | B = Full Address (multi-line) | C = Outlet Email
+Fetched **dynamically at runtime** — update the sheet, no code changes needed.
 
-| Code | Location Name | Company |
-|---|---|---|
-| TTDI | WORQ TTDI | Incompleteness Theorem Sdn Bhd |
-| UBP | WORQ Subang | Incompleteness Theorem Sdn Bhd |
-| KLG | WORQ KL Gateway | Incompleteness Theorem Sdn Bhd |
-| STO | WORQ Mutiara Damansara | Incompleteness Theorem Sdn Bhd |
-| KLS | WORQ KL Sentral | WORQ KL Sdn Bhd |
-| MUB | WORQ Menara UOA Bangsar | WORQ KL Sdn Bhd |
-| SPM | WORQ Sunway Putra | WORQ KL Sdn Bhd |
-| ITG | WORQ Intermark | WORQ KL Sdn Bhd |
+Account number from col D is used in the PDF payment details section per outlet.
 
 ---
 
@@ -106,17 +98,21 @@ Fetched **dynamically at runtime** — team updates the sheet, no code changes n
 **Key rules:**
 - Row with **non-empty Category (A)** = start of new item group (parent row)
 - Rows with **blank Category** = sub-components of the previous item (Cost/Unit in col D)
-- **Cost Price (E)** and **Price (F)** only populated on parent row (sum of sub-components)
-- Item Description (C) contains full bundled description with `a) b) c)` sub-items
+- **Cost Price (E)** and **Price (F)** on the parent row = totals used for billing
+- If col F (Price) is set, it is used directly as the selling price
+- If col F is blank/zero, selling price is computed from Cost Price using selected markup
 
 **Markup options (user selects in sidebar):**
 
 | Markup % | Formula |
 |---|---|
-| 10% | `Price = Cost Price / 0.9` |
-| 20% | `Price = Cost Price / 0.8` |
-| 25% | `Price = Cost Price / 0.75` |
-| **30% (default)** | `Price = Cost Price / 0.7` |
+| 10% | `roundup(Cost / 0.9, -2)` |
+| 20% | `roundup(Cost / 0.8, -2)` |
+| 25% | `roundup(Cost / 0.75, -2)` |
+| **30% (default)** | `roundup(Cost / 0.7, -2)` |
+
+Prices are rounded up to the nearest 100 (matching the catalogue formula `=roundup(E/0.7,-2)`).
+Items with a fixed catalogue price (col F) are NOT affected by markup changes.
 
 Unit Price field is editable after markup is applied.
 
@@ -130,7 +126,8 @@ Unit Price field is editable after markup is applied.
 ```
 WORQ/ITG/2026/10
 WORQ/TTDI/2026/11   ← same running sequence, different location
-WORQ/TTDI/2026/12
+WORQ/ITG/2026/11 rev1  ← revision
+WORQ/ITG/2026/11 rev2  ← second revision
 ```
 
 **Auto-generation:**
@@ -144,6 +141,7 @@ WORQ/TTDI/2026/12
 - Quote number becomes editable, pre-filled with existing number + ` rev1`
 - Script auto-detects existing rev suffix and increments: `rev1` → `rev2`
 - Revision does NOT increment the running number counter
+- Revision always appends a new row in the tracker
 
 ---
 
@@ -152,96 +150,80 @@ WORQ/TTDI/2026/12
 ```
 03 QUOTATION GENERATOR/
 ├── appsscript.json          ← OAuth scopes, timezone (Asia/Kuala_Lumpur), V8 runtime
-├── .clasp.json              ← auto-generated by clasp create
+├── .clasp.json              ← clasp config (scriptId, parentId)
 ├── .claspignore             ← excludes README, DOCUMENTATION.md, node_modules
-├── Code.gs                  ← onOpen, menu, openSidebar, getSelectedRowData, getNextQuoteNumber, getLocations
-├── Sidebar.gs               ← getInitialData, getCatalogueItems, generateQuotation, sendEmail, updateTrackerRow
+├── Code.gs                  ← onOpen, menu, openSidebar, getLocations, getNextQuoteNumber, clearCache, setupScriptProperties, debugLocations
+├── Sidebar.gs               ← getInitialData, getCatalogueItems, previewQuotation, confirmQuotation, sendEmail, updateTrackerRow
 ├── PdfGenerator.gs          ← buildHtmlQuotation, convertHtmlToPdf, getLogoBase64
 ├── DriveManager.gs          ← savePdf
-├── sidebar.html             ← Sidebar UI (vanilla JS, inline CSS)
+├── sidebar.html             ← Modal dialog UI (vanilla JS, inline CSS)
 └── quotation-template.html  ← PDF layout (HtmlTemplate scriptlets)
 ```
 
 ---
 
-## Sidebar UI Flow
+## Quotation Flow (Preview → Confirm)
 
 ```
-1. User clicks any row in Tracker sheet (optional — for revision pre-fill)
-2. Clicks "WORQ Tools > Generate Quotation"
-3. Sidebar opens:
+1. Open Quotation Tracker sheet
+2. Click "Quotation Generator > Generate Quotation"
+3. Modal dialog opens (1000×750px):
+   - Fill location, customer details, work description
+   - Search and add items from catalogue
+   - Adjust qty / unit price as needed
+   - Select markup %
 
-   ┌──────────────────────────────────────┐
-   │ WORQ Quotation Generator             │
-   │                                      │
-   │ Location: [WORQ Intermark (ITG) ▼]   │
-   │ Quote No:  WORQ/ITG/2026/11 (auto)   │
-   │ [ ] Is this a revision?              │
-   │ Date: 26 Mar 2026 (today, locked)    │
-   │                                      │
-   │ ── Customer Details ──               │
-   │ Company:  [_______________________]  │
-   │ Address:  [_______________________]  │
-   │           [_______________________]  │
-   │ Email:    [_______________________]  │
-   │                                      │
-   │ ── Items ──                          │
-   │ Markup: ○10% ○20% ○25% ●30%         │
-   │                                      │
-   │ Search: [___________]                │
-   │ ┌─────────────────────────────────┐  │
-   │ │ Card Reader + PIN (ZKTeco)      │  │
-   │ │ Card + Face Reader (ZKTeco)     │  │
-   │ │ IP Camera 4MP (TPLink)          │  │
-   │ └─────────────────────────────────┘  │
-   │                    [Add Item]        │
-   │                                      │
-   │ ┌───────────────┬───┬───────┬──────┐ │
-   │ │ Description   │Qty│ Price │Total │ │
-   │ ├───────────────┼───┼───────┼──────┤ │
-   │ │ Card+PIN…     │ 1 │4700.00│4700  │ │
-   │ └───────────────┴───┴───────┴──────┘ │
-   │                                      │
-   │ Running Total: MYR 4,700.00          │
-   │                                      │
-   │      [Generate Quotation]            │
-   └──────────────────────────────────────┘
+4. Click "Generate Quotation"
+   → Server builds HTML preview (no PDF yet)
+   → Preview rendered in iframe inside the dialog
 
-4. Click Generate → spinner → PDF generated → opens in new tab
-5. Tracker row updated automatically (Quote#, Drive link, Quoted Price, Cost Price)
+5. Review the quotation:
+   - Click "← Back & Edit" to go back and make changes
+   - Click "Confirm & Send" to finalise
+
+6. On confirm:
+   - PDF generated and saved to Drive folder
+   - Email sent to customer (with PDF attachment)
+   - Outlet email CC'd
+   - New row appended to tracker with all details
+   - Success message with link to PDF
 ```
 
 ---
 
-## PDF Layout (matches existing quotation template)
+## PDF Layout
 
 ```
 ┌──────────────────────────────────────────┐
-│ [WORQ Logo img]    WORQ Integra           │
+│ [WORQ Logo]        WORQ Intermark         │
 │                    WORQ KL SDN BHD        │
 │                    Suite 09-01, Level 9.. │
 │                    integra@worq.space     │
 ├──────────────────────────────────────────┤
 │ Quotation          Quotation Date         │
-│                    26 Mar 2026            │
+│                    27 Mar 2026            │
 │ Customer Name                             │
 │ Customer Address   Quotation Number       │
 │                    WORQ/ITG/2026/11       │
 ├──────────────────────────────────────────┤
 │ Description      │ Qty │ Unit Price │ Amt │
 ├──────────────────┴─────┴────────────┴────┤
-│ Door Access  (bold category header)       │
-│ 1. Item description          1   200.00  │
-│ 2. Another item              1   400.00  │
-│ Networking  (bold category header)        │
-│ 3. Switch                    1   800.00  │
+│ Card Access  (category header)            │
+│ 1. Card Reader + PIN (bold)    1  4,700  │
+│    a) PROID30BM Reader                    │
+│    b) Inbio Pro Plus Controller           │
+│    ...sub-components in grey...           │
+│ Networking  (category header)             │
+│ 2. Unifi Landline              1    420  │
+│    Unifi Physical Landline                │
+│    Land line Cable Pull                   │
 ├──────────────────────────────────────────┤
-│                       TOTAL MYR 1,400.00 │
+│                       TOTAL MYR 5,120.00 │
 ├──────────────────────────────────────────┤
 │ PAYMENT DETAILS                           │
 │ Bank: Malayan Banking Berhad (Maybank)   │
 │ Account Name: Worq KL Sdn Bhd           │
-│ Account No: 512222641522                 │
+│ Account No: [dynamic from ADDRESS tab]   │
 │ SWIFT: MBBEMYKL                          │
 │ Payment Reference: WORQ/ITG/2026/11      │
 ├──────────────────────────────────────────┤
@@ -249,27 +231,35 @@ WORQ/TTDI/2026/12
 │ Warranty: 12 months (manufacturer)       │
 │ Validity: 30 days from quotation date    │
 │ Payment Terms: 100% upon completion      │
-├──────────────────────────────────────────┤
-│   Thank you — We really appreciate       │
-│             your business!               │
 └──────────────────────────────────────────┘
 ```
 
 **PDF Generation method:** HTML string → `DriveApp.createFile(blob)` → `.getAs('application/pdf')` → trash temp file → save PDF blob to Drive folder.
 
-**Logo:** Fetched from Drive using `LOGO_FILE_ID`, converted to base64 data URI and embedded in `<img src="data:image/png;base64,...">` — ensures logo renders during Drive's HTML→PDF conversion.
+**Logo:** Fetched from Drive using `LOGO_FILE_ID`, converted to base64 data URI — ensures logo renders during Drive's HTML→PDF conversion. Cached 6 hours.
+
+**Account Number:** Pulled dynamically from ADDRESS tab col D per outlet.
+
+**Item display:** Set name shown in bold as main line item. Sub-components listed below in smaller grey text. Items with zero price show `—`.
 
 ---
 
-## Output Actions (all automatic on "Generate")
+## Menu Options
+
+| Menu Item | Function |
+|---|---|
+| Generate Quotation | Opens the 1000×750 modal dialog |
+| Clear Cache | Clears catalogue and logo cache (use after updating the catalogue sheet) |
+
+---
+
+## Output Actions (on Confirm)
 
 1. PDF saved to Drive folder → filename: `WORQ-ITG-2026-11.pdf`
-2. Tracker Column B updated with Quote Number (new quotes only)
-3. Tracker Column F updated with Drive PDF link
-4. Tracker Column G updated with Quoted Price
-5. Tracker Column H updated with Cost Price
-6. PDF emailed to customer (GmailApp, PDF as attachment)
-7. PDF opened in new browser tab for immediate review
+2. New row appended to tracker with: Date, Quote#, Customer, Work, Doc Link, Quoted Price, Cost Price, Profit, Margin, Billed? (default: Pending Customer)
+3. Row inherits dropdown validation and formatting from previous row
+4. PDF emailed to customer (GmailApp, PDF as attachment)
+5. Outlet email CC'd
 
 ---
 
@@ -283,17 +273,14 @@ cd AS_quotation_generator
 npm install -g @google/clasp
 clasp login
 # Enable Apps Script API first: script.google.com/home/usersettings
-clasp create --title "WORQ Quotation Generator" --type sheets \
-  --parentId 1DbX1hTx8pHoqzyRZ5AuikECJf2CSC2f__T8k2htZtG0
 
 # Daily development
-clasp push           # push local changes to Apps Script
-clasp push --watch   # auto-push on file save
-clasp open           # open Apps Script editor in browser
-clasp logs           # view Stackdriver logs for debugging
+clasp push --force    # push local changes to Apps Script
+clasp open            # open Apps Script editor in browser
+clasp logs            # view Stackdriver logs for debugging
 ```
 
-After each `clasp push`: reload the Tracker spreadsheet in browser to test changes.
+After each `clasp push --force`: reload the Tracker spreadsheet in browser to test changes.
 
 ---
 
@@ -301,12 +288,15 @@ After each `clasp push`: reload the Tracker spreadsheet in browser to test chang
 
 - [ ] `npm install -g @google/clasp` and `clasp login`
 - [ ] Apps Script API enabled at script.google.com/home/usersettings
-- [ ] `clasp create` run with Tracker spreadsheet ID as `--parentId`
-- [ ] All 8 Script Properties set in Apps Script Project Settings
-- [ ] **Test:** "WORQ Tools" menu appears after reload
-- [ ] **Test:** Sidebar opens, location dropdown populated, quote number auto-generates
+- [ ] `.clasp.json` has correct `scriptId` and `parentId` (Tracker spreadsheet ID)
+- [ ] Run `setupScriptProperties()` from Apps Script editor
+- [ ] Run `Quotation Generator > Clear Cache` after first setup
+- [ ] **Test:** "Quotation Generator" menu appears after reload
+- [ ] **Test:** Modal opens, location dropdown populated, quote number auto-generates
 - [ ] **Test:** Catalogue loads, search filters work, markup applies correctly
-- [ ] **Test:** PDF generates with correct location address, logo, grouped items
+- [ ] **Test:** Fixed-price items (col F) not affected by markup changes
+- [ ] **Test:** Preview renders correctly before confirm
+- [ ] **Test:** PDF generates with correct location address, logo, grouped items, account number
 - [ ] **Test:** Drive folder receives PDF file named correctly
 - [ ] **Test:** Customer email received with PDF attached
-- [ ] **Test:** Tracker row updated (Quote#, Drive link, Quoted Price, Cost Price)
+- [ ] **Test:** Tracker row appended with all columns filled and dropdown validation intact

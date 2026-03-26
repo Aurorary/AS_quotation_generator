@@ -43,74 +43,109 @@ function getCatalogueItems() {
 
   for (let i = 3; i < rows.length; i++) {
     const r = rows[i];
-    const category = r[0] ? r[0].toString().trim() : '';
-    const brand    = r[1] ? r[1].toString().trim() : '';
-    const desc     = r[2] ? r[2].toString().trim() : '';
-    const costUnit = r[3] ? parseFloat(r[3]) || 0 : 0;
-    const costPrice= r[4] ? parseFloat(r[4]) || 0 : 0;
-    const price    = r[5] ? parseFloat(r[5]) || 0 : 0;
+    const category   = r[0] ? r[0].toString().trim() : '';
+    const brand      = r[1] ? r[1].toString().trim() : '';
+    const desc       = r[2] ? r[2].toString().trim() : '';
+    const costUnit   = r[3] ? parseFloat(r[3]) || 0 : 0;
+    const costPrice  = r[4] ? parseFloat(r[4]) || 0 : 0;
+    const price      = r[5] ? parseFloat(r[5]) || 0 : 0;
     const chargeType = r[6] ? r[6].toString().trim() : '';
-    const remark   = r[7] ? r[7].toString().trim() : '';
+    const remark     = r[7] ? r[7].toString().trim() : '';
 
     if (category) {
-      // New parent item
+      // New parent item — push previous
       if (current) items.push(current);
+      // Some items have no description on the category row (desc is in sub-rows)
+      // Use brand as fallback label if desc is blank; sub-rows will fill in detail
       current = {
         category: category,
         brand: brand,
-        description: desc,
+        description: desc,  // may be blank — will be filled from first sub-row if needed
         costPrice: costPrice,
         price: price,
         chargeType: chargeType,
         remark: remark,
         subRows: []
       };
-    } else if (desc && current) {
-      // Sub-component row
-      current.subRows.push({ description: desc, costUnit: costUnit });
+    } else if (current) {
+      if (costPrice > 0 || price > 0) {
+        // This sub-row carries the cost/price — treat its desc as the item description
+        // and update parent's cost/price if not already set
+        if (!current.costPrice) current.costPrice = costPrice;
+        if (!current.price) current.price = price;
+        if (!current.description && desc) current.description = desc;
+        if (desc) current.subRows.push({ description: desc, costUnit: costUnit });
+      } else if (desc) {
+        // Regular sub-component row
+        current.subRows.push({ description: desc, costUnit: costUnit });
+      }
     }
   }
   if (current) items.push(current);
 
-  cache.put('catalogue', JSON.stringify(items), 600);
-  return items;
+  // Remove items with no description and no price (blank spacer rows)
+  const filtered = items.filter(function(item) {
+    return item.description || item.subRows.length > 0;
+  });
+
+  cache.put('catalogue', JSON.stringify(filtered), 600);
+  return filtered;
 }
 
-// ── Master generate function ─────────────────────────────────
-function generateQuotation(payload) {
+// ── Step 1: Preview — build HTML only, cache payload ────────
+function previewQuotation(payload) {
   try {
-    // 1. Get location details
     const locations = getLocations();
     const loc = locations.find(function(l) { return l.code === payload.locationCode; });
     if (!loc) throw new Error('Location not found: ' + payload.locationCode);
 
-    // 2. Build PDF HTML
     const logoDataUri = getLogoBase64();
     const htmlString = buildHtmlQuotation(payload, loc, logoDataUri);
 
-    // 3. Convert to PDF
-    const pdfBlob = convertHtmlToPdf(htmlString, payload.quoteNumber);
+    // Cache payload for confirm step (10 min)
+    const cache = CacheService.getScriptCache();
+    cache.put('pendingPayload', JSON.stringify(payload), 600);
 
-    // 4. Save to Drive
+    return { success: true, html: htmlString };
+
+  } catch (e) {
+    console.error('previewQuotation error:', e.message, e.stack);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Step 2: Confirm — save PDF, send email, update tracker ───
+function confirmQuotation() {
+  try {
+    const cache = CacheService.getScriptCache();
+    const raw = cache.get('pendingPayload');
+    if (!raw) throw new Error('Preview expired. Please generate the preview again.');
+
+    const payload = JSON.parse(raw);
+    cache.remove('pendingPayload');
+
+    const locations = getLocations();
+    const loc = locations.find(function(l) { return l.code === payload.locationCode; });
+    if (!loc) throw new Error('Location not found: ' + payload.locationCode);
+
+    const logoDataUri = getLogoBase64();
+    const htmlString = buildHtmlQuotation(payload, loc, logoDataUri);
+    const pdfBlob = convertHtmlToPdf(htmlString, payload.quoteNumber);
     const driveUrl = savePdf(pdfBlob, payload.quoteNumber);
 
-    // 5. Send email to customer
     if (payload.customerEmail) {
       sendQuotationEmail(payload.customerEmail, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl);
     }
-
-    // Also CC the location outlet email if available
     if (loc.email && loc.email !== payload.customerEmail) {
       sendQuotationEmail(loc.email, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, true);
     }
 
-    // 6. Update tracker row
     updateTrackerRow(payload.rowIndex, payload.quoteNumber, driveUrl, payload.quotedPrice, payload.costPrice, payload.quoteDate, payload.customerName, payload.work);
 
     return { success: true, pdfUrl: driveUrl };
 
   } catch (e) {
-    console.error('generateQuotation error:', e.message, e.stack);
+    console.error('confirmQuotation error:', e.message, e.stack);
     return { success: false, error: e.message };
   }
 }
@@ -130,18 +165,36 @@ function sendQuotationEmail(email, customerName, quoteNumber, pdfBlob, driveUrl,
 
 // ── Update tracker row columns ───────────────────────────────
 function updateTrackerRow(rowIndex, quoteNumber, driveUrl, quotedPrice, costPrice, quoteDate, customerName, work) {
-  if (!rowIndex || rowIndex <= 1) return;
-
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const tabName = getProp('TRACKER_SHEET_TAB') || 'NEW COMBINED';
   const sheet = ss.getSheetByName(tabName);
 
-  // Col A = Date, B = Quote#, C = Customer, D = Work, F = Drive link, G = Quoted, H = Cost
-  if (quoteDate) sheet.getRange(rowIndex, 1).setValue(quoteDate);
-  sheet.getRange(rowIndex, 2).setValue(quoteNumber);
-  if (customerName) sheet.getRange(rowIndex, 3).setValue(customerName);
-  if (work) sheet.getRange(rowIndex, 4).setValue(work);
-  sheet.getRange(rowIndex, 6).setValue(driveUrl);
-  sheet.getRange(rowIndex, 7).setValue(quotedPrice);
-  sheet.getRange(rowIndex, 8).setValue(costPrice);
+  const profit = quotedPrice - costPrice;
+  const margin = quotedPrice > 0 ? Math.round((profit / quotedPrice) * 100) + '%' : '0%';
+
+  // Always append a new row (revisions get their own row with Rev# in the quote number)
+  const lastRow = sheet.getLastRow();
+  const newRow = lastRow + 1;
+
+  // Copy format + validation from previous row
+  sheet.getRange(lastRow, 1, 1, 11).copyTo(
+    sheet.getRange(newRow, 1, 1, 11),
+    SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false
+  );
+  sheet.getRange(lastRow, 11, 1, 1).copyTo(
+    sheet.getRange(newRow, 11, 1, 1),
+    SpreadsheetApp.CopyPasteType.PASTE_DATA_VALIDATION, false
+  );
+
+  // A=Date, B=Quote#, C=Customer, D=Work, F=Doc Link, G=Quoted, H=Cost, I=Profit, J=Margin, K=Billed?
+  sheet.getRange(newRow, 1).setValue(quoteDate);
+  sheet.getRange(newRow, 2).setValue(quoteNumber);
+  sheet.getRange(newRow, 3).setValue(customerName);
+  sheet.getRange(newRow, 4).setValue(work);
+  sheet.getRange(newRow, 6).setValue(driveUrl);
+  sheet.getRange(newRow, 7).setValue(quotedPrice);
+  sheet.getRange(newRow, 8).setValue(costPrice);
+  sheet.getRange(newRow, 9).setValue(profit);
+  sheet.getRange(newRow, 10).setValue(margin);
+  sheet.getRange(newRow, 11).setValue('Pending Customer');
 }

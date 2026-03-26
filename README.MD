@@ -1,20 +1,20 @@
 # WORQ Quotation Generator
 
-Automates the WORQ KL IT quotation workflow. Replaces manual Google Sheets copy-paste with a sidebar-driven tool that generates a branded PDF, saves it to Drive, emails it to the customer, and logs everything back to the tracker — in one click.
+Automates the WORQ KL IT quotation workflow. A modal dialog in the Tracker Google Sheet lets the team pick items from the product catalogue, preview the quotation, then confirm — generating a branded PDF, saving it to Drive, emailing it to the customer, and logging everything back to the tracker.
 
 ## How It Works
 
 1. Open the **Quotation Tracker** Google Sheet
-2. Click **WORQ Tools > Generate Quotation** from the menu
-3. Fill in the sidebar: location, customer details, pick items from catalogue
-4. Click **Generate Quotation**
-5. PDF is created, saved to Drive, emailed to customer, and the tracker row is updated automatically
+2. Click **Quotation Generator > Generate Quotation** from the menu
+3. Fill in the modal: location, customer details, pick items from catalogue
+4. Click **Generate Quotation** → review the preview
+5. Click **Confirm & Send** → PDF saved to Drive, emailed to customer, tracker row appended
 
 ## Tech Stack
 
 - Google Apps Script (bound to Tracker spreadsheet)
 - clasp — local development and version control
-- HTML Service — sidebar UI
+- HTML Service — modal dialog UI (1000×750px)
 - DriveApp — PDF generation and storage
 - GmailApp — send PDF to customer
 
@@ -22,11 +22,11 @@ Automates the WORQ KL IT quotation workflow. Replaces manual Google Sheets copy-
 
 | File | Purpose |
 |---|---|
-| `Code.gs` | Menu setup, quote number logic, location data |
-| `Sidebar.gs` | Server-side functions called from the sidebar |
+| `Code.gs` | Menu setup, quote number logic, location data, cache management |
+| `Sidebar.gs` | Server-side functions: preview, confirm, catalogue, tracker update |
 | `PdfGenerator.gs` | Builds HTML quotation and converts to PDF |
 | `DriveManager.gs` | Saves PDF to Google Drive |
-| `sidebar.html` | Sidebar UI (HTML + vanilla JS) |
+| `sidebar.html` | Modal dialog UI (HTML + vanilla JS) |
 | `quotation-template.html` | PDF layout template |
 | `appsscript.json` | Apps Script manifest (OAuth scopes, runtime) |
 
@@ -34,8 +34,7 @@ Automates the WORQ KL IT quotation workflow. Replaces manual Google Sheets copy-
 
 | Sheet | Purpose |
 |---|---|
-| [Quotation Tracker](https://docs.google.com/spreadsheets/d/1DbX1hTx8pHoqzyRZ5AuikECJf2CSC2f__T8k2htZtG0) | Master list of all quotes — script is bound here |
-| [Quotation Template + Address](https://docs.google.com/spreadsheets/d/1a9ggAV7RN796FgFM9d5rQ-qIAGKAYGkDycK8l0CeKoY) | ADDRESS tab (locations), QUOTATION TEMPLATE tab |
+| [Quotation Tracker](https://docs.google.com/spreadsheets/d/1DbX1hTx8pHoqzyRZ5AuikECJf2CSC2f__T8k2htZtG0) | Master list of all quotes — script bound here, ADDRESS tab included |
 | [Price Catalogue](https://docs.google.com/spreadsheets/d/1aqTyUVxbtaDQh9vzuzxsZAZYl5AM1oyli4vbWZZNSps) | Hardware & Services tab — items, cost prices, selling prices |
 
 ## Repositories
@@ -57,12 +56,10 @@ cd AS_quotation_generator
 
 npm install -g @google/clasp
 clasp login
-clasp create --title "WORQ Quotation Generator" --type sheets \
-  --parentId 1DbX1hTx8pHoqzyRZ5AuikECJf2CSC2f__T8k2htZtG0
-clasp push
+clasp push --force
 ```
 
-Then set all Script Properties in **Apps Script > Project Settings > Script Properties** (see DOCUMENTATION.md for the full list).
+Then run `setupScriptProperties()` from the Apps Script editor to set all required properties.
 
 ## Quote Number Format
 
@@ -72,13 +69,21 @@ WORQ/{LOCATION}/{YEAR}/{RUNNING_NUMBER}
 Examples:
   WORQ/ITG/2026/10
   WORQ/TTDI/2026/11
-  WORQ/ITG/2026/10 rev1   ← revision
+  WORQ/ITG/2026/11 rev1   ← revision
+  WORQ/ITG/2026/11 rev2   ← second revision
 ```
 
-Running number is sequential across all locations.
+Running number is sequential across all locations. Revisions always append a new row.
 
 ## Supported Locations
 
-TTDI · UBP · KLG · STO · KLS · MUB · SPM · ITG
+Managed dynamically in the **ADDRESS tab** of the Tracker sheet — no code changes needed to add/update locations.
 
-Locations and addresses are managed in the ADDRESS tab of the Template sheet — no code changes needed to add/update a location.
+Current outlets: TTDI · UBP · KLG · STO · KLS · MUB · SPM · ITG · SVT · BU · APT · MSH
+
+## Menu Options
+
+| Option | Description |
+|---|---|
+| Generate Quotation | Opens the quotation modal dialog |
+| Clear Cache | Clears catalogue + logo cache (use after updating the catalogue sheet) |

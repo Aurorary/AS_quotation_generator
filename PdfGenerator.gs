@@ -39,6 +39,14 @@ function buildHtmlQuotation(payload, loc, logoDataUri) {
     grouped[cat].push(item);
   });
 
+  // Compute charge-type totals (One-Off vs Monthly)
+  const chargeGroups = {};
+  payload.items.forEach(function(item) {
+    const ct = item.chargeType || 'Other';
+    chargeGroups[ct] = (chargeGroups[ct] || 0) + (item.lineTotal || 0);
+  });
+  const chargeGroupKeys = Object.keys(chargeGroups);
+
   // Build item rows HTML
   let itemRowsHtml = '';
   let itemCounter = 1;
@@ -55,12 +63,23 @@ function buildHtmlQuotation(payload, loc, logoDataUri) {
       // Build sub-components list if present
       let subHtml = '';
       if (item.subRows && item.subRows.length > 0) {
-        subHtml = '<div style="margin-top:4px; color:#555; font-size:8.5pt; line-height:1.5;">';
+        subHtml = '<table style="width:100%; border-collapse:collapse; margin-top:4px; color:#555; font-size:8.5pt;">';
         item.subRows.forEach(function(sub) {
-          subHtml += escHtml(sub.description) + '<br>';
+          subHtml += '<tr>'
+                   + '<td style="padding:1px 0;">' + escHtml(sub.description) + '</td>'
+                   + '<td style="padding:1px 0; text-align:right; white-space:nowrap; width:1%; padding-left:8px;">' + chargeTag(sub.chargeType || '') + '</td>'
+                   + '</tr>';
         });
-        subHtml += '</div>';
+        subHtml += '</table>';
       }
+
+      // Main description line: tag floated right before sub-rows
+      const mainDescHtml = item.chargeType
+        ? '<table style="width:100%; border-collapse:collapse;"><tr>'
+          + '<td><strong>' + descLines + '</strong></td>'
+          + '<td style="text-align:right; white-space:nowrap; width:1%; padding-left:8px;">' + chargeTag(item.chargeType) + '</td>'
+          + '</tr></table>'
+        : '<strong>' + descLines + '</strong>';
 
       // Only show price columns if unit price > 0
       const priceHtml = item.unitPrice > 0
@@ -69,7 +88,7 @@ function buildHtmlQuotation(payload, loc, logoDataUri) {
 
       itemRowsHtml += `
       <tr class="item-row">
-        <td>${itemCounter}. <strong>${descLines}</strong>${subHtml}</td>
+        <td>${itemCounter}. ${mainDescHtml}${subHtml}</td>
         ${priceHtml}
       </tr>`;
       itemCounter++;
@@ -84,6 +103,18 @@ function buildHtmlQuotation(payload, loc, logoDataUri) {
   const locationAddr    = addrLines.slice(2).join('<br>');
 
   const totalFormatted = formatMyr(payload.quotedPrice);
+
+  // Build charge-group subtotal rows HTML (only when >1 group)
+  let chargeGroupHtml = '';
+  if (chargeGroupKeys.length > 1) {
+    chargeGroupKeys.forEach(function(ct) {
+      chargeGroupHtml += `
+      <tr class="charge-group-row">
+        <td colspan="3" class="right" style="font-size:8pt; color:#555; padding: 3px 6px;">${escHtml(ct)}</td>
+        <td class="right" style="font-size:8pt; color:#555; padding: 3px 6px;">MYR ${formatMyr(chargeGroups[ct])}</td>
+      </tr>`;
+    });
+  }
 
   // Customer address multi-line
   const custAddrHtml = escHtml(payload.customerAddress || '').replace(/\n/g, '<br>');
@@ -100,6 +131,7 @@ function buildHtmlQuotation(payload, loc, logoDataUri) {
   template.customerAddr    = custAddrHtml;
   template.quoteNumber     = escHtml(payload.quoteNumber || '');
   template.itemRowsHtml    = itemRowsHtml;
+  template.chargeGroupHtml = chargeGroupHtml;
   template.totalFormatted  = totalFormatted;
 
   return template.evaluate().getContent();
@@ -130,4 +162,14 @@ function escHtml(str) {
 function formatMyr(value) {
   const num = parseFloat(value) || 0;
   return num.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function chargeTag(ct) {
+  if (!ct) return '';
+  const isMonthly = ct === 'Monthly';
+  const bg    = isMonthly ? '#ddeeff' : '#eeeeee';
+  const color = isMonthly ? '#0055aa' : '#444444';
+  return '<span style="background:' + bg + '; color:' + color + '; font-size:7pt; '
+       + 'font-weight:normal; border-radius:3px; padding:1px 5px; '
+       + 'margin-left:6px; white-space:nowrap;">' + escHtml(ct) + '</span>';
 }

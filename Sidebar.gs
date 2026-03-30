@@ -68,16 +68,29 @@ function getCatalogueItems() {
         subRows: []
       };
     } else if (current) {
-      if (costPrice > 0 || price > 0) {
+      // A sub-row with its own brand is a distinct item sharing the last category
+      if (brand) {
+        items.push(current);
+        current = {
+          category: current.category,
+          brand: brand,
+          description: desc,
+          costPrice: costPrice,
+          price: price,
+          chargeType: chargeType,
+          remark: remark,
+          subRows: []
+        };
+      } else if (costPrice > 0 || price > 0) {
         // This sub-row carries the cost/price — treat its desc as the item description
         // and update parent's cost/price if not already set
         if (!current.costPrice) current.costPrice = costPrice;
         if (!current.price) current.price = price;
         if (!current.description && desc) current.description = desc;
-        if (desc) current.subRows.push({ description: desc, costUnit: costUnit });
+        if (desc) current.subRows.push({ description: desc, costUnit: costUnit, chargeType: chargeType });
       } else if (desc) {
         // Regular sub-component row
-        current.subRows.push({ description: desc, costUnit: costUnit });
+        current.subRows.push({ description: desc, costUnit: costUnit, chargeType: chargeType });
       }
     }
   }
@@ -134,10 +147,10 @@ function confirmQuotation() {
     const driveUrl = savePdf(pdfBlob, payload.quoteNumber);
 
     if (payload.customerEmail) {
-      sendQuotationEmail(payload.customerEmail, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl);
+      sendQuotationEmail(payload.customerEmail, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, false, payload.ccEmail || '');
     }
     if (loc.email && loc.email !== payload.customerEmail) {
-      sendQuotationEmail(loc.email, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, true);
+      sendQuotationEmail(loc.email, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, true, '');
     }
 
     updateTrackerRow(payload.rowIndex, payload.quoteNumber, driveUrl, payload.quotedPrice, payload.costPrice, payload.quoteDate, payload.customerName, payload.work);
@@ -151,16 +164,19 @@ function confirmQuotation() {
 }
 
 // ── Send email with PDF attachment ──────────────────────────
-function sendQuotationEmail(email, customerName, quoteNumber, pdfBlob, driveUrl, isCc) {
+function sendQuotationEmail(email, customerName, quoteNumber, pdfBlob, driveUrl, isCc, ccEmail) {
   const subject = 'Quotation ' + quoteNumber + ' — WORQ';
   const body = isCc
     ? 'Please find attached the quotation ' + quoteNumber + ' for ' + customerName + '.\n\nDrive link: ' + driveUrl
     : 'Dear ' + customerName + ',\n\nPlease find attached your quotation ' + quoteNumber + '.\n\nShould you have any questions, feel free to reach out.\n\nBest regards,\nWORQ Team\n\nDrive link: ' + driveUrl;
 
-  GmailApp.sendEmail(email, subject, body, {
+  const opts = {
     attachments: [pdfBlob.setName(quoteNumber.replace(/\//g, '-') + '.pdf')],
     name: 'WORQ Quotation'
-  });
+  };
+  if (ccEmail) opts.cc = ccEmail;
+
+  GmailApp.sendEmail(email, subject, body, opts);
 }
 
 // ── Update tracker row columns ───────────────────────────────

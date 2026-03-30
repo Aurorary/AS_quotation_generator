@@ -97,24 +97,27 @@ Account number from col D is used in the PDF payment details section per outlet.
 
 **Key rules:**
 - Row with **non-empty Category (A)** = start of new item group (parent row)
-- Rows with **blank Category** = sub-components of the previous item (Cost/Unit in col D)
+- Row with **blank Category but non-empty Brand (B)** = new item inheriting the last category (e.g. Power Calculation under Rack Space)
+- Rows with **blank Category and blank Brand** = sub-components of the previous item (Cost/Unit in col D)
 - **Cost Price (E)** and **Price (F)** on the parent row = totals used for billing
 - If col F (Price) is set, it is used directly as the selling price
-- If col F is blank/zero, selling price is computed from Cost Price using selected markup
+- If col F is blank/zero, selling price is computed from Cost Price using 30% markup: `roundup(Cost / 0.7, -2)`
+- **Charge Type (G)** on sub-component rows is stored and shown as a label tag in the PDF
 
-**Markup options (user selects in sidebar):**
+**Selling price formula (30% markup default):**
 
 | Markup % | Formula |
 |---|---|
-| 10% | `roundup(Cost / 0.9, -2)` |
-| 20% | `roundup(Cost / 0.8, -2)` |
-| 25% | `roundup(Cost / 0.75, -2)` |
 | **30% (default)** | `roundup(Cost / 0.7, -2)` |
 
-Prices are rounded up to the nearest 100 (matching the catalogue formula `=roundup(E/0.7,-2)`).
-Items with a fixed catalogue price (col F) are NOT affected by markup changes.
+Prices are rounded up to the nearest 100. Items with a fixed catalogue price (col F) are NOT affected by markup.
 
-Unit Price field is editable after markup is applied.
+**Custom Items:**
+- Two special rows at the bottom of the catalogue: `Custom Item — One-off Custom Item` and `Custom Item — Monthly Custom Item`
+- When added, the description field becomes editable inline in the sidebar
+- Unit price defaults to 0 and must be entered manually; cost price is tracked as 0
+
+**After updating the catalogue sheet, always run Clear Cache** from the Quotation Generator menu.
 
 ---
 
@@ -154,7 +157,7 @@ WORQ/ITG/2026/11 rev2  ← second revision
 ├── .claspignore             ← excludes README, DOCUMENTATION.md, node_modules
 ├── Code.gs                  ← onOpen, menu, openSidebar, getLocations, getNextQuoteNumber, clearCache, setupScriptProperties, debugLocations
 ├── Sidebar.gs               ← getInitialData, getCatalogueItems, previewQuotation, confirmQuotation, sendEmail, updateTrackerRow
-├── PdfGenerator.gs          ← buildHtmlQuotation, convertHtmlToPdf, getLogoBase64
+├── PdfGenerator.gs          ← buildHtmlQuotation, convertHtmlToPdf, getLogoBase64, chargeTag
 ├── DriveManager.gs          ← savePdf
 ├── sidebar.html             ← Modal dialog UI (vanilla JS, inline CSS)
 └── quotation-template.html  ← PDF layout (HtmlTemplate scriptlets)
@@ -169,9 +172,9 @@ WORQ/ITG/2026/11 rev2  ← second revision
 2. Click "Quotation Generator > Generate Quotation"
 3. Modal dialog opens (1000×750px):
    - Fill location, customer details, work description
+   - Fill customer email and optional CC email
    - Search and add items from catalogue
    - Adjust qty / unit price as needed
-   - Select markup %
 
 4. Click "Generate Quotation"
    → Server builds HTML preview (no PDF yet)
@@ -183,64 +186,103 @@ WORQ/ITG/2026/11 rev2  ← second revision
 
 6. On confirm:
    - PDF generated and saved to Drive folder
-   - Email sent to customer (with PDF attachment)
-   - Outlet email CC'd
+   - Email sent to customer (with PDF attachment); CC address included if provided
+   - Outlet email sent separately
    - New row appended to tracker with all details
    - Success message with link to PDF
 ```
 
 ---
 
+## Sidebar Features
+
+### Catalogue Search & Add
+- Search box filters catalogue by category, brand, or description in real time
+- Catalogue list shows `[Category] Brand — Description`
+- Selecting an item and clicking `+ Add Item` adds it to the items table
+- **Bug fix:** filtered catalogue uses original index into `allCatalogueItems` — adding a filtered item always adds the correct item regardless of filter position
+
+### Items Table
+Columns: Description | Cat | Type | Qty | Unit Price | Total | (remove)
+
+- **Type column** shows the item's charge type (Monthly in blue, One-Off in grey)
+- **Custom items** render the description as an editable text input
+- Qty and Unit Price are editable inline; totals recalculate on change
+
+### Charge-Type Totals
+- Sidebar shows a grouped breakdown (Monthly / One-Off) above the Cost/Quoted totals
+- Breakdown is hidden when all items share the same charge type
+- Bundle items with no top-level charge type (e.g. Unifi) do not appear in the breakdown
+
+### Email Fields
+- **Email** — primary recipient, PDF attached
+- **CC Email (optional)** — added as CC on the customer email only
+
+---
+
 ## PDF Layout
 
 ```
-┌──────────────────────────────────────────┐
-│ [WORQ Logo]        WORQ Intermark         │
-│                    WORQ KL SDN BHD        │
-│                    Suite 09-01, Level 9.. │
-│                    integra@worq.space     │
-├──────────────────────────────────────────┤
-│ Quotation          Quotation Date         │
-│                    27 Mar 2026            │
-│ Customer Name                             │
-│ Customer Address   Quotation Number       │
-│                    WORQ/ITG/2026/11       │
-├──────────────────────────────────────────┤
-│ Description      │ Qty │ Unit Price │ Amt │
-├──────────────────┴─────┴────────────┴────┤
-│ Card Access  (category header)            │
-│ 1. Card Reader + PIN (bold)    1  4,700  │
-│    a) PROID30BM Reader                    │
-│    b) Inbio Pro Plus Controller           │
-│    ...sub-components in grey...           │
-│ Networking  (category header)             │
-│ 2. Unifi Landline              1    420  │
-│    Unifi Physical Landline                │
-│    Land line Cable Pull                   │
-├──────────────────────────────────────────┤
-│                       TOTAL MYR 5,120.00 │
-├──────────────────────────────────────────┤
-│ PAYMENT DETAILS                           │
-│ Bank: Malayan Banking Berhad (Maybank)   │
-│ Account Name: Worq KL Sdn Bhd           │
-│ Account No: [dynamic from ADDRESS tab]   │
-│ SWIFT: MBBEMYKL                          │
-│ Payment Reference: WORQ/ITG/2026/11      │
-├──────────────────────────────────────────┤
-│ Terms & Conditions                        │
-│ Warranty: 12 months (manufacturer)       │
-│ Validity: 30 days from quotation date    │
-│ Payment Terms: 100% upon completion      │
-└──────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────┐
+│ [WORQ Logo]              WORQ Intermark               │
+│                          WORQ KL SDN BHD              │
+│                          Suite 09-01, Level 9..       │
+│                          integra@worq.space           │
+├──────────────────────────────────────────────────────┤
+│ Quotation                Quotation Date               │
+│                          27 Mar 2026                  │
+│ Customer Name                                         │
+│ Customer Address         Quotation Number             │
+│                          WORQ/ITG/2026/11             │
+├──────────────────────────────────────────────────────┤
+│ Description          │ Qty │ Unit Price (MYR) │ Amt  │
+├──────────────────────┴─────┴─────────────────┴───────┤
+│ Card Access  (category header)                        │
+│ 1. Card Reader + PIN [One-Off]         1  4,700  4,700│
+│    a) PROID30BM Reader                                │
+│    b) Inbio Pro Plus Controller                       │
+│                                                       │
+│ Landline  (category header)                           │
+│ 2. Unifi bundle                                       │
+│    Unifi Landline Activation Fee  [One-Off]           │
+│    Unifi Physical Landline        [Monthly]           │
+│    Land line Cable Pull           [One-Off]           │
+│                                    1    420    420    │
+│                                                       │
+│                        One-Off       MYR 4,840.00    │
+│                        Monthly         MYR 300.00    │
+│                        ──────────────────────────    │
+│                        TOTAL         MYR 5,140.00    │
+├──────────────────────────────────────────────────────┤
+│ PAYMENT DETAILS                                       │
+│ Bank: Malayan Banking Berhad (Maybank)               │
+│ Account Name: Worq KL Sdn Bhd                        │
+│ Account No: [dynamic from ADDRESS tab]               │
+│ SWIFT: MBBEMYKL                                      │
+│ Payment Reference: WORQ/ITG/2026/11                  │
+├──────────────────────────────────────────────────────┤
+│ Terms & Conditions                                    │
+│ Warranty: 12 months (manufacturer)                   │
+│ Validity: 30 days from quotation date                │
+│ Payment Terms: 100% upon completion                  │
+└──────────────────────────────────────────────────────┘
 ```
+
+**Charge type tags:**
+- Each line item shows a coloured pill tag: `[One-Off]` (grey) or `[Monthly]` (blue)
+- For bundle items (blank parent chargeType), tags appear on each sub-row individually
+- Tags are rendered using inline `<table>` layout for reliable alignment in Google's PDF renderer
+
+**Charge-group subtotals:**
+- Shown between the last item row and the TOTAL row
+- Only rendered when 2+ distinct charge types exist across top-level items
+- Bundle items with blank parent chargeType are excluded from the subtotal split (totals remain correct)
 
 **PDF Generation method:** HTML string → `DriveApp.createFile(blob)` → `.getAs('application/pdf')` → trash temp file → save PDF blob to Drive folder.
 
 **Logo:** Fetched from Drive using `LOGO_FILE_ID`, converted to base64 data URI — ensures logo renders during Drive's HTML→PDF conversion. Cached 6 hours.
 
 **Account Number:** Pulled dynamically from ADDRESS tab col D per outlet.
-
-**Item display:** Set name shown in bold as main line item. Sub-components listed below in smaller grey text. Items with zero price show `—`.
 
 ---
 
@@ -249,7 +291,7 @@ WORQ/ITG/2026/11 rev2  ← second revision
 | Menu Item | Function |
 |---|---|
 | Generate Quotation | Opens the 1000×750 modal dialog |
-| Clear Cache | Clears catalogue and logo cache (use after updating the catalogue sheet) |
+| Clear Cache | Clears catalogue and logo cache — **run after any catalogue sheet update** |
 
 ---
 
@@ -258,8 +300,8 @@ WORQ/ITG/2026/11 rev2  ← second revision
 1. PDF saved to Drive folder → filename: `WORQ-ITG-2026-11.pdf`
 2. New row appended to tracker with: Date, Quote#, Customer, Work, Doc Link, Quoted Price, Cost Price, Profit, Margin, Billed? (default: Pending Customer)
 3. Row inherits dropdown validation and formatting from previous row
-4. PDF emailed to customer (GmailApp, PDF as attachment)
-5. Outlet email CC'd
+4. PDF emailed to customer (GmailApp, PDF as attachment); CC address added if provided
+5. Outlet email sent separately (BCC-style internal copy)
 
 ---
 
@@ -293,9 +335,12 @@ After each `clasp push --force`: reload the Tracker spreadsheet in browser to te
 - [ ] Run `Quotation Generator > Clear Cache` after first setup
 - [ ] **Test:** "Quotation Generator" menu appears after reload
 - [ ] **Test:** Modal opens, location dropdown populated, quote number auto-generates
-- [ ] **Test:** Catalogue loads, search filters work, markup applies correctly
-- [ ] **Test:** Fixed-price items (col F) not affected by markup changes
-- [ ] **Test:** Preview renders correctly before confirm
+- [ ] **Test:** Catalogue loads, search filters work, item added from filtered list is correct
+- [ ] **Test:** Charge type (Type column) shows correctly per item in sidebar
+- [ ] **Test:** Charge-type grouped totals appear in sidebar when both types present
+- [ ] **Test:** Custom item description is editable; price entered manually
+- [ ] **Test:** CC email field passes through to sent email
+- [ ] **Test:** Preview renders with charge type tags on item rows and sub-rows
 - [ ] **Test:** PDF generates with correct location address, logo, grouped items, account number
 - [ ] **Test:** Drive folder receives PDF file named correctly
 - [ ] **Test:** Customer email received with PDF attached

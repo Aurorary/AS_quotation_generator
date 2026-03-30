@@ -43,6 +43,11 @@
     padding: 4px 6px;
     border-bottom: none;
   }
+  table.items-table tr.charge-group-row td {
+    border-top: 0.5px solid #ddd;
+    border-bottom: none;
+    padding: 3px 6px;
+  }
   table.items-table tr.total-row td {
     border-top: 1.5px solid #222;
     border-bottom: none;
@@ -136,6 +141,7 @@
   </thead>
   <tbody>
     <?!= itemRowsHtml ?>
+    <?!= chargeGroupHtml ?>
     <tr class="total-row">
       <td colspan="3" class="right">TOTAL</td>
       <td class="right">MYR <?= totalFormatted ?></td>

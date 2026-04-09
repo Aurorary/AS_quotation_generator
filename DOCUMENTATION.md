@@ -256,15 +256,16 @@ Columns: Description | Cat | Type | Qty | Unit Price | Total | (remove)
 ├──────────────────────────────────────────────────────┤
 │ PAYMENT DETAILS                                       │
 │ Bank: Malayan Banking Berhad (Maybank)               │
-│ Account Name: Worq KL Sdn Bhd                        │
+│ Account Name: [dynamic — company name from location] │
 │ Account No: [dynamic from ADDRESS tab]               │
 │ SWIFT: MBBEMYKL                                      │
 │ Payment Reference: WORQ/ITG/2026/11                  │
 ├──────────────────────────────────────────────────────┤
 │ Terms & Conditions                                    │
-│ Warranty: 12 months (manufacturer)                   │
+│ Warranty: 12 months (manufacturer warranty)          │
 │ Validity: 30 days from quotation date                │
 │ Payment Terms: 100% upon completion                  │
+│ Prices are subject to change without prior notice    │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -281,6 +282,8 @@ Columns: Description | Cat | Type | Qty | Unit Price | Total | (remove)
 **PDF Generation method:** HTML string → `DriveApp.createFile(blob)` → `.getAs('application/pdf')` → trash temp file → save PDF blob to Drive folder.
 
 **Logo:** Fetched from Drive using `LOGO_FILE_ID`, converted to base64 data URI — ensures logo renders during Drive's HTML→PDF conversion. Cached 6 hours.
+
+**Account Name:** Pulled dynamically from the location's company name (line 2 of the full address block in ADDRESS tab).
 
 **Account Number:** Pulled dynamically from ADDRESS tab col D per outlet.
 

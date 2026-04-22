@@ -37,6 +37,11 @@ function getCatalogueItems() {
   const sheet = ss.getSheetByName(tabName);
   const rows = sheet.getDataRange().getValues();
 
+  function computeCatalogueSellPrice(cost) {
+    if (!cost) return 0;
+    return Math.ceil((cost / 0.7) / 10) * 10;
+  }
+
   // Rows 0-2 are notes/header — start at index 3
   const items = [];
   let current = null;
@@ -68,28 +73,39 @@ function getCatalogueItems() {
         subRows: []
       };
     } else if (current) {
-      // A sub-row with its own brand is a distinct item sharing the last category
       if (brand) {
-        items.push(current);
-        current = {
-          category: current.category,
-          brand: brand,
-          description: desc,
-          costPrice: costPrice,
-          price: price,
-          chargeType: chargeType,
-          remark: remark,
-          subRows: []
-        };
+        // Sub-row with brand + price and no category = secondary billing component of parent
+        // Detected when: parent has a chargeType already and this row adds a different chargeType with its own price
+        if ((costPrice > 0 || price > 0) && chargeType && chargeType !== current.chargeType && current.chargeType) {
+          const epPrice = price > 0 ? price : computeCatalogueSellPrice(costPrice);
+          current.extraPriceRows = current.extraPriceRows || [];
+          current.extraPriceRows.push({ description: brand, costPrice: costPrice, price: epPrice, chargeType: chargeType });
+        } else {
+          // Distinct sibling item
+          items.push(current);
+          current = {
+            category: current.category,
+            brand: brand,
+            description: desc,
+            costPrice: costPrice,
+            price: price,
+            chargeType: chargeType,
+            remark: remark,
+            subRows: []
+          };
+        }
       } else if (costPrice > 0 || price > 0) {
-        // This sub-row carries the cost/price — treat its desc as the item description
-        // and update parent's cost/price if not already set
-        if (!current.costPrice) current.costPrice = costPrice;
-        if (!current.price) current.price = price;
+        // Sub-row with its own price — store for display but do NOT accumulate into parent
+        // (parent's catalogue price already reflects the full package price)
         if (!current.description && desc) current.description = desc;
-        if (desc) current.subRows.push({ description: desc, costUnit: costUnit, chargeType: chargeType });
+        current.subRows.push({ description: desc, costUnit: costUnit, costPrice: costPrice, price: price, chargeType: chargeType });
+      } else if (costUnit > 0 && chargeType && chargeType !== current.chargeType) {
+        // Sub-row with only a costUnit and a different chargeType — treat costUnit as its individual sell price
+        // Do NOT accumulate into parent price (parent catalogue price already covers the full package)
+        const subSellPrice = computeCatalogueSellPrice(costUnit);
+        current.subRows.push({ description: desc, costUnit: costUnit, costPrice: costUnit, price: subSellPrice, chargeType: chargeType });
       } else if (desc) {
-        // Regular sub-component row
+        // Regular sub-component row (no price)
         current.subRows.push({ description: desc, costUnit: costUnit, chargeType: chargeType });
       }
     }
@@ -147,7 +163,8 @@ function confirmQuotation() {
     const driveUrl = savePdf(pdfBlob, payload.quoteNumber);
 
     if (payload.customerEmail) {
-      sendQuotationEmail(payload.customerEmail, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, false, payload.ccEmail || '');
+      const userCc = (payload.ccEmail || '').trim();
+      sendQuotationEmail(payload.customerEmail, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, false, userCc);
     }
     if (loc.email && loc.email !== payload.customerEmail) {
       sendQuotationEmail(loc.email, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, true, '');

@@ -10,7 +10,7 @@
   .section-title { font-size: 11px; font-weight: bold; color: #555; text-transform: uppercase;
                    letter-spacing: 0.5px; margin: 12px 0 6px; border-bottom: 1px solid #eee; padding-bottom: 3px; }
 
-  label { display: block; font-size: 11px; color: #444; margin-bottom: 2px; }
+  label { display: block; font-size: 11px; font-weight: bold; color: #222; margin-bottom: 2px; }
   input[type=text], input[type=email], textarea, select {
     width: 100%; padding: 5px 7px; border: 1px solid #ccc; border-radius: 3px;
     font-size: 12px; margin-bottom: 6px; font-family: Arial, sans-serif;
@@ -44,6 +44,7 @@
                                border-radius: 2px; text-align: right; }
   table#itemsTable td.r { text-align: right; }
   table#itemsTable td.c { text-align: center; }
+  .cost-input { background: #fffbe6; border-color: #f0c040 !important; }
   .remove-btn { background: none; border: none; color: #c00; cursor: pointer; font-size: 13px;
                 line-height: 1; padding: 0 2px; }
 
@@ -72,50 +73,69 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 
   .revision-field { display: none; }
+
+  /* Two-column header layout */
+  .header-cols { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 4px; }
+  .header-cols .col { flex: 1; min-width: 0; }
+  .header-cols .col-narrow { flex: 0 0 38%; min-width: 0; }
+  .header-cols .col-wide   { flex: 1; min-width: 0; }
+  .col-divider { border-left: 1px solid #eee; margin: 0 2px; }
 </style>
 </head>
 <body>
 
-<h2>WORQ Quotation Generator</h2>
 
-<!-- ── QUOTE DETAILS ─────────────────────────────────── -->
-<div class="section-title">Quote Details</div>
+<!-- ── QUOTE DETAILS + CUSTOMER DETAILS side by side ──── -->
+<div class="section-title" style="margin-top:0;">Quote &amp; Customer Details</div>
 
-<label>Location</label>
-<select id="locationSelect" onchange="onLocationChange()"></select>
+<div class="header-cols">
 
-<label>Quote Number</label>
-<input type="text" id="quoteNumberDisplay" readonly>
+  <!-- LEFT: Quote Details -->
+  <div class="col-narrow">
+    <label style="font-size:10px; font-weight:bold; color:#111; text-transform:uppercase; letter-spacing:0.4px; margin-bottom:4px;">Quote Details</label>
 
-<label style="display:flex; align-items:center; gap:6px; margin-bottom:6px; cursor:pointer;">
-  <input type="checkbox" id="isRevision" onchange="onRevisionToggle()"> Is this a revision?
-</label>
+    <label>Location</label>
+    <select id="locationSelect" onchange="onLocationChange()"></select>
 
-<div class="revision-field" id="revisionField">
-  <label>Revision Quote Number (edit if needed)</label>
-  <input type="text" id="revisionQuoteNumber">
+    <label>Quote Number</label>
+    <input type="text" id="quoteNumberDisplay" readonly>
+
+    <label style="display:flex; align-items:center; gap:6px; margin-bottom:6px; cursor:pointer;">
+      <input type="checkbox" id="isRevision" onchange="onRevisionToggle()"> Is this a revision?
+    </label>
+
+    <div class="revision-field" id="revisionField">
+      <label>Revision No.</label>
+      <input type="text" id="revisionQuoteNumber">
+    </div>
+
+    <label>Date</label>
+    <input type="text" id="quoteDate" readonly>
+  </div>
+
+  <div class="col-divider"></div>
+
+  <!-- RIGHT: Customer Details -->
+  <div class="col-wide">
+    <label style="font-size:10px; font-weight:bold; color:#111; text-transform:uppercase; letter-spacing:0.4px; margin-bottom:4px;">Customer Details</label>
+
+    <label>Company Name *</label>
+    <input type="text" id="customerName" placeholder="e.g. Aquilius Investment Partners">
+
+    <label>Work Description</label>
+    <input type="text" id="workDesc" placeholder="e.g. Door access installation">
+
+    <label>Address</label>
+    <textarea id="customerAddress" placeholder="Full address (multi-line OK)" style="min-height:56px;"></textarea>
+
+    <label>Email (for PDF delivery)</label>
+    <input type="email" id="customerEmail" placeholder="customer@example.com">
+
+    <label>CC Email (optional)</label>
+    <input type="email" id="ccEmail" placeholder="cc@example.com">
+  </div>
+
 </div>
-
-<label>Date</label>
-<input type="text" id="quoteDate" readonly>
-
-<!-- ── CUSTOMER DETAILS ───────────────────────────────── -->
-<div class="section-title">Customer Details</div>
-
-<label>Company Name *</label>
-<input type="text" id="customerName" placeholder="e.g. Aquilius Investment Partners">
-
-<label>Work Description</label>
-<input type="text" id="workDesc" placeholder="e.g. Door access installation">
-
-<label>Address</label>
-<textarea id="customerAddress" placeholder="Full address (multi-line OK)"></textarea>
-
-<label>Email (for PDF delivery)</label>
-<input type="email" id="customerEmail" placeholder="customer@example.com">
-
-<label>CC Email (optional)</label>
-<input type="email" id="ccEmail" placeholder="cc@example.com">
 
 <!-- ── ITEMS ──────────────────────────────────────────── -->
 <div class="section-title">Items</div>
@@ -129,17 +149,18 @@
 <table id="itemsTable">
   <thead>
     <tr>
-      <th style="width:34%">Description</th>
-      <th style="width:10%">Cat</th>
-      <th style="width:10%">Type</th>
-      <th class="c" style="width:8%">Qty</th>
-      <th class="r" style="width:14%">Unit Price</th>
-      <th class="r" style="width:14%">Total</th>
-      <th style="width:10%"></th>
+      <th style="width:28%">Description</th>
+      <th style="width:9%">Cat</th>
+      <th style="width:8%">Type</th>
+      <th class="c" style="width:6%">Qty</th>
+      <th class="r" style="width:12%">Cost Price</th>
+      <th class="r" style="width:12%">Unit Price</th>
+      <th class="r" style="width:12%">Total</th>
+      <th style="width:5%"></th>
     </tr>
   </thead>
   <tbody id="itemsBody">
-    <tr id="emptyRow"><td colspan="7" style="color:#aaa; text-align:center; padding:8px;">No items added</td></tr>
+    <tr id="emptyRow"><td colspan="8" style="color:#aaa; text-align:center; padding:8px;">No items added</td></tr>
   </tbody>
 </table>
 
@@ -311,6 +332,7 @@ function addSelectedItem() {
     description: item.description,
     isCustom: item.brand === 'Custom Item',
     subRows: item.subRows || [],
+    extraPriceRows: item.extraPriceRows || [],
     qty: 1,
     unitPrice: unitPrice,
     costPrice: item.costPrice,
@@ -330,7 +352,7 @@ function renderItemsTable() {
   if (addedItems.length === 0) {
     var tr = document.createElement('tr');
     tr.id = 'emptyRow';
-    tr.innerHTML = '<td colspan="7" style="color:#aaa; text-align:center; padding:8px;">No items added</td>';
+    tr.innerHTML = '<td colspan="8" style="color:#aaa; text-align:center; padding:8px;">No items added</td>';
     tbody.appendChild(tr);
     return;
   }
@@ -343,11 +365,15 @@ function renderItemsTable() {
     var descCell = item.isCustom
       ? '<td><input type="text" value="' + escHtml(descShort) + '" placeholder="Enter description…" style="width:100%; padding:2px 4px; font-size:11px; border:1px solid #ddd; border-radius:2px;" onchange="onDescChange(' + item.id + ', this.value)"></td>'
       : '<td title="' + escHtml(item.description) + '">' + escHtml(descShort) + '</td>';
+    var costCell = item.isCustom
+      ? '<td class="r"><input type="number" min="0" step="0.01" value="' + (item.costPrice || 0).toFixed(2) + '" class="cost-input" style="width:68px;" placeholder="Cost…" onchange="onCostChange(' + item.id + ', this.value)" title="Enter cost price — unit price auto-calculates at 30% margin"></td>'
+      : '<td class="r" style="color:#aaa; font-size:10px;">' + (item.costPrice > 0 ? formatMyr(item.costPrice) : '—') + '</td>';
     tr.innerHTML =
       descCell +
       '<td style="font-size:10px; color:#666;">' + escHtml(item.category) + '</td>' +
       '<td style="font-size:10px; color:' + typeColor + ';">' + escHtml(typeLabel) + '</td>' +
-      '<td class="c"><input type="number" min="1" value="' + item.qty + '" style="width:40px; text-align:center;" onchange="onQtyChange(' + item.id + ', this.value)"></td>' +
+      '<td class="c"><input type="number" min="1" value="' + item.qty + '" style="width:55px; text-align:center;" onchange="onQtyChange(' + item.id + ', this.value)"></td>' +
+      costCell +
       '<td class="r"><input type="number" min="0" step="0.01" value="' + item.unitPrice.toFixed(2) + '" style="width:68px;" onchange="onPriceChange(' + item.id + ', this.value)"></td>' +
       '<td class="r">' + formatMyr(item.lineTotal) + '</td>' +
       '<td class="c"><button class="remove-btn" onclick="removeItem(' + item.id + ')" title="Remove">✕</button></td>';
@@ -385,12 +411,21 @@ function onDescChange(id, val) {
   item.description = val.trim();
 }
 
+function onCostChange(id, val) {
+  var item = addedItems.find(function(i) { return i.id === id; });
+  if (!item) return;
+  item.costPrice = parseFloat(val) || 0;
+  item.unitPrice = computeSellingPrice(item.costPrice, 30);
+  item.lineTotal = round2(item.qty * item.unitPrice);
+  renderItemsTable();
+  recalcTotals();
+}
+
 function computeSellingPrice(costPrice, markupPct) {
   if (!costPrice) return 0;
   var divisor = 1 - (markupPct / 100);
   var raw = costPrice / divisor;
-  // Match catalogue formula: roundup(cost/divisor, -2) — round up to nearest 100
-  return Math.ceil(raw / 100) * 100;
+  return Math.ceil(raw / 10) * 10;
 }
 
 // ── Totals ───────────────────────────────────────────────────
@@ -402,6 +437,18 @@ function recalcTotals() {
     costSum += round2(item.costPrice * item.qty);
     var ct = item.chargeType || 'Other';
     groups[ct] = (groups[ct] || 0) + item.lineTotal;
+    (item.subRows || []).filter(function(s) { return s.price > 0; }).forEach(function(sub) {
+      quotedSum += sub.price * item.qty;
+      costSum += round2(sub.costPrice * item.qty);
+      var sct = sub.chargeType || 'Other';
+      groups[sct] = (groups[sct] || 0) + sub.price * item.qty;
+    });
+    (item.extraPriceRows || []).forEach(function(ep) {
+      quotedSum += ep.price * item.qty;
+      costSum += round2(ep.costPrice * item.qty);
+      var ect = ep.chargeType || 'Other';
+      groups[ect] = (groups[ect] || 0) + ep.price * item.qty;
+    });
   });
   document.getElementById('quotedTotal').textContent = 'MYR ' + formatMyr(quotedSum);
   document.getElementById('costTotal').textContent   = 'MYR ' + formatMyr(costSum);
@@ -442,6 +489,14 @@ function buildPayload() {
   addedItems.forEach(function(item) {
     quotedSum += item.lineTotal;
     costSum += round2(item.costPrice * item.qty);
+    (item.subRows || []).filter(function(s) { return s.price > 0; }).forEach(function(s) {
+      quotedSum += s.price * item.qty;
+      costSum += round2(s.costPrice * item.qty);
+    });
+    (item.extraPriceRows || []).forEach(function(ep) {
+      quotedSum += ep.price * item.qty;
+      costSum += round2(ep.costPrice * item.qty);
+    });
   });
 
   var rowIndex = null;
@@ -462,6 +517,7 @@ function buildPayload() {
       return {
         description: item.description,
         subRows: item.subRows || [],
+        extraPriceRows: item.extraPriceRows || [],
         category: item.category,
         chargeType: item.chargeType || '',
         qty: item.qty,

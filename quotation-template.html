@@ -22,8 +22,8 @@
   /* ── Quote info block ── */
   table.info-table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
   table.info-table td { vertical-align: top; padding: 2px 0; }
-  .label { font-weight: bold; font-size: 8.5pt; color: #555; }
-  .value { font-size: 9pt; }
+  .label { font-weight: bold; font-size: 8.5pt; color: #222; }
+  .value { font-size: 9pt; color: #222; }
 
   /* ── Items table ── */
   table.items-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 8.5pt; }
@@ -33,7 +33,7 @@
     padding: 5px 6px;
     text-align: left;
     font-size: 8.5pt;
-  }
+      }
   table.items-table th.center, table.items-table td.center { text-align: center; }
   table.items-table th.right, table.items-table td.right   { text-align: right; }
   table.items-table td { padding: 5px 6px; border-bottom: 0.5px solid #ddd; vertical-align: top; }
@@ -41,10 +41,12 @@
     background: #f0f0f0;
     font-weight: bold;
     padding: 4px 6px;
-    border-bottom: none;
+    border-top: none;
+    border-bottom: 1.5px solid #222;
   }
+  table.items-table tr.item-row td { border-bottom: 0.5px solid #ddd; }
   table.items-table tr.charge-group-row td {
-    border-top: 0.5px solid #ddd;
+    border-top: none;
     border-bottom: none;
     padding: 3px 6px;
   }
@@ -114,7 +116,7 @@
     </td>
   </tr>
   <tr>
-    <td style="color:#555; font-size:8.5pt; padding-top:2px;">
+    <td style="color:#222; font-size:8.5pt; padding-top:2px;">
       <?!= customerAddr ?>
     </td>
     <td></td>
@@ -155,23 +157,23 @@
     <td colspan="2"><div class="section-title">PAYMENT DETAILS</div></td>
   </tr>
   <tr>
-    <td style="width:30%; color:#555;">Bank</td>
+    <td style="width:30%; color:#222;">Bank</td>
     <td>Malayan Banking Berhad (Maybank)</td>
   </tr>
   <tr>
-    <td style="color:#555;">Account Name</td>
+    <td style="color:#222;">Account Name</td>
     <td><?= locationCompany ?></td>
   </tr>
   <tr>
-    <td style="color:#555;">Account No</td>
+    <td style="color:#222;">Account No</td>
     <td><?= accountNo ?></td>
   </tr>
   <tr>
-    <td style="color:#555;">SWIFT</td>
+    <td style="color:#222;">SWIFT</td>
     <td>MBBEMYKL</td>
   </tr>
   <tr>
-    <td style="color:#555;">Payment Reference</td>
+    <td style="color:#222;">Payment Reference</td>
     <td><?= quoteNumber ?></td>
   </tr>
 </table>

@@ -44,30 +44,43 @@ function buildHtmlQuotation(payload, loc, logoDataUri) {
   payload.items.forEach(function(item) {
     const ct = item.chargeType || 'Other';
     chargeGroups[ct] = (chargeGroups[ct] || 0) + (item.lineTotal || 0);
+    (item.subRows || []).filter(function(s) { return s.price > 0; }).forEach(function(sub) {
+      const sct = sub.chargeType || 'Other';
+      chargeGroups[sct] = (chargeGroups[sct] || 0) + (sub.price * (item.qty || 1));
+    });
+    (item.extraPriceRows || []).forEach(function(ep) {
+      const ect = ep.chargeType || 'Other';
+      chargeGroups[ect] = (chargeGroups[ect] || 0) + (ep.price * (item.qty || 1));
+    });
   });
   const chargeGroupKeys = Object.keys(chargeGroups);
 
   // Build item rows HTML
   let itemRowsHtml = '';
   let itemCounter = 1;
+  const lastCat = categoryOrder[categoryOrder.length - 1];
   categoryOrder.forEach(function(cat) {
     itemRowsHtml += `
       <tr class="cat-header">
         <td colspan="4"><strong>${escHtml(cat)}</strong></td>
       </tr>`;
-    grouped[cat].forEach(function(item) {
+    const catItems = grouped[cat];
+    catItems.forEach(function(item, idx) {
       const descLines = escHtml(item.description).replace(/\n/g, '<br>');
       const unitPrice = formatMyr(item.unitPrice);
       const lineTotal = formatMyr(item.lineTotal);
 
-      // Build sub-components list if present
+      // Split sub-rows: components (no price) stay in desc cell; priced rows get own table row
+      const componentSubs = (item.subRows || []).filter(function(s) { return !(s.price > 0); });
+      const pricedSubs    = (item.subRows || []).filter(function(s) { return s.price > 0; });
+
       let subHtml = '';
-      if (item.subRows && item.subRows.length > 0) {
-        subHtml = '<table style="width:100%; border-collapse:collapse; margin-top:4px; color:#555; font-size:8.5pt;">';
-        item.subRows.forEach(function(sub) {
+      if (componentSubs.length > 0) {
+        subHtml = '<table style="width:100%; border-collapse:collapse; margin-top:4px; color:#222; font-size:8.5pt;">';
+        componentSubs.forEach(function(sub) {
           subHtml += '<tr>'
-                   + '<td style="padding:1px 0;">' + escHtml(sub.description) + '</td>'
-                   + '<td style="padding:1px 0; text-align:right; white-space:nowrap; width:1%; padding-left:8px;">' + chargeTag(sub.chargeType || '') + '</td>'
+                   + '<td style="padding:1px 0; border:none;">' + escHtml(sub.description) + '</td>'
+                   + '<td style="padding:1px 0; border:none; text-align:right; white-space:nowrap; width:1%; padding-left:8px;">' + chargeTag(sub.chargeType || '') + '</td>'
                    + '</tr>';
         });
         subHtml += '</table>';
@@ -76,21 +89,70 @@ function buildHtmlQuotation(payload, loc, logoDataUri) {
       // Main description line: tag floated right before sub-rows
       const mainDescHtml = item.chargeType
         ? '<table style="width:100%; border-collapse:collapse;"><tr>'
-          + '<td><strong>' + descLines + '</strong></td>'
+          + '<td><strong>' + itemCounter + '. ' + descLines + '</strong></td>'
           + '<td style="text-align:right; white-space:nowrap; width:1%; padding-left:8px;">' + chargeTag(item.chargeType) + '</td>'
           + '</tr></table>'
-        : '<strong>' + descLines + '</strong>';
+        : itemCounter + '. <strong>' + descLines + '</strong>';
 
-      // Only show price columns if unit price > 0
-      const priceHtml = item.unitPrice > 0
-        ? `<td class="center">${item.qty}</td><td class="right">${unitPrice}</td><td class="right">${lineTotal}</td>`
-        : `<td class="center">${item.qty}</td><td class="right">—</td><td class="right">—</td>`;
+      // Last item in a non-final category: suppress bottom border to avoid double line with next cat-header
+      const isLastInCat = idx === catItems.length - 1;
+      const isFinalCat  = cat === lastCat;
+      const noBorder    = (isLastInCat && !isFinalCat) ? ' style="border-bottom:none;"' : '';
+
+      const extraRows = item.extraPriceRows || [];
+      const hasTrailing = pricedSubs.length > 0 || extraRows.length > 0;
+      const mainNoBorder = hasTrailing ? '' : noBorder;
 
       itemRowsHtml += `
       <tr class="item-row">
-        <td>${itemCounter}. ${mainDescHtml}${subHtml}</td>
-        ${priceHtml}
+        <td${mainNoBorder}>${mainDescHtml}${subHtml}</td>
+        <td class="center"${mainNoBorder}>${item.qty}</td>
+        <td class="right"${mainNoBorder}>${item.unitPrice > 0 ? unitPrice : '—'}</td>
+        <td class="right"${mainNoBorder}>${item.unitPrice > 0 ? lineTotal : '—'}</td>
       </tr>`;
+
+      // Priced sub-rows (e.g. Monthly service fee bundled with a One-Off setup)
+      pricedSubs.forEach(function(sub, subIdx) {
+        const isLast     = subIdx === pricedSubs.length - 1 && extraRows.length === 0;
+        const subNoBorder = isLast ? noBorder : '';
+        const subPrice   = formatMyr(sub.price);
+        const subTotal   = formatMyr(sub.price * item.qty);
+        const subDescHtml = sub.chargeType
+          ? '<table style="width:100%; border-collapse:collapse;"><tr>'
+            + '<td style="color:#222; font-size:8.5pt;">' + escHtml(sub.description) + '</td>'
+            + '<td style="text-align:right; white-space:nowrap; width:1%; padding-left:8px;">' + chargeTag(sub.chargeType) + '</td>'
+            + '</tr></table>'
+          : '<span style="color:#222; font-size:8.5pt;">' + escHtml(sub.description) + '</span>';
+        itemRowsHtml += `
+      <tr class="item-row">
+        <td${subNoBorder}>${subDescHtml}</td>
+        <td class="center"${subNoBorder}>${item.qty}</td>
+        <td class="right"${subNoBorder}>${sub.price > 0 ? subPrice : '—'}</td>
+        <td class="right"${subNoBorder}>${sub.price > 0 ? subTotal : '—'}</td>
+      </tr>`;
+      });
+
+      // Extra price rows (secondary billing component with different charge type)
+      extraRows.forEach(function(ep, epIdx) {
+        const isLastEp   = epIdx === extraRows.length - 1;
+        const epNoBorder = isLastEp ? noBorder : '';
+        const epPrice    = formatMyr(ep.price);
+        const epTotal    = formatMyr(ep.price * item.qty);
+        const epDescHtml = ep.chargeType
+          ? '<table style="width:100%; border-collapse:collapse;"><tr>'
+            + '<td style="color:#222; font-size:8.5pt;">' + escHtml(ep.description) + '</td>'
+            + '<td style="text-align:right; white-space:nowrap; width:1%; padding-left:8px;">' + chargeTag(ep.chargeType) + '</td>'
+            + '</tr></table>'
+          : '<span style="color:#222; font-size:8.5pt;">' + escHtml(ep.description) + '</span>';
+        itemRowsHtml += `
+      <tr class="item-row">
+        <td${epNoBorder}>${epDescHtml}</td>
+        <td class="center"${epNoBorder}>${item.qty}</td>
+        <td class="right"${epNoBorder}>${ep.price > 0 ? epPrice : '—'}</td>
+        <td class="right"${epNoBorder}>${ep.price > 0 ? epTotal : '—'}</td>
+      </tr>`;
+      });
+
       itemCounter++;
     });
   });
@@ -110,8 +172,8 @@ function buildHtmlQuotation(payload, loc, logoDataUri) {
     chargeGroupKeys.forEach(function(ct) {
       chargeGroupHtml += `
       <tr class="charge-group-row">
-        <td colspan="3" class="right" style="font-size:8pt; color:#555; padding: 3px 6px;">${escHtml(ct)}</td>
-        <td class="right" style="font-size:8pt; color:#555; padding: 3px 6px;">MYR ${formatMyr(chargeGroups[ct])}</td>
+        <td colspan="3" class="right" style="font-size:8pt; color:#222; padding: 3px 6px;">${escHtml(ct)}</td>
+        <td class="right" style="font-size:8pt; color:#222; padding: 3px 6px;">MYR ${formatMyr(chargeGroups[ct])}</td>
       </tr>`;
     });
   }

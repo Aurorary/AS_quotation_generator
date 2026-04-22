@@ -181,7 +181,7 @@ function buildHtmlQuotation(payload, loc, logoDataUri) {
   // Customer address multi-line
   const custAddrHtml = escHtml(payload.customerAddress || '').replace(/\n/g, '<br>');
 
-  const template = HtmlService.createTemplateFromFile('quotation-template');
+  const template = HtmlService.createTemplateFromFile('07 quotation_template');
   template.logoDataUri     = logoDataUri;
   template.locationName    = locationName;
   template.locationCompany = locationCompany;

@@ -89,8 +89,8 @@ function buildHtmlQuotation(payload, loc, logoDataUri) {
       // Main description line: tag floated right before sub-rows
       const mainDescHtml = item.chargeType
         ? '<table style="width:100%; border-collapse:collapse;"><tr>'
-          + '<td><strong>' + itemCounter + '. ' + descLines + '</strong></td>'
-          + '<td style="text-align:right; white-space:nowrap; width:1%; padding-left:8px;">' + chargeTag(item.chargeType) + '</td>'
+          + '<td style="border:none;"><strong>' + itemCounter + '. ' + descLines + '</strong></td>'
+          + '<td style="border:none; text-align:right; white-space:nowrap; width:1%; padding-left:8px;">' + chargeTag(item.chargeType) + '</td>'
           + '</tr></table>'
         : itemCounter + '. <strong>' + descLines + '</strong>';
 
@@ -101,7 +101,7 @@ function buildHtmlQuotation(payload, loc, logoDataUri) {
 
       const extraRows = item.extraPriceRows || [];
       const hasTrailing = pricedSubs.length > 0 || extraRows.length > 0;
-      const mainNoBorder = hasTrailing ? '' : noBorder;
+      const mainNoBorder = hasTrailing ? ' style="border-bottom:none;"' : noBorder;
 
       itemRowsHtml += `
       <tr class="item-row">
@@ -119,8 +119,8 @@ function buildHtmlQuotation(payload, loc, logoDataUri) {
         const subTotal   = formatMyr(sub.price * item.qty);
         const subDescHtml = sub.chargeType
           ? '<table style="width:100%; border-collapse:collapse;"><tr>'
-            + '<td style="color:#222; font-size:8.5pt;">' + escHtml(sub.description) + '</td>'
-            + '<td style="text-align:right; white-space:nowrap; width:1%; padding-left:8px;">' + chargeTag(sub.chargeType) + '</td>'
+            + '<td style="border:none; color:#222; font-size:8.5pt;">' + escHtml(sub.description) + '</td>'
+            + '<td style="border:none; text-align:right; white-space:nowrap; width:1%; padding-left:8px;">' + chargeTag(sub.chargeType) + '</td>'
             + '</tr></table>'
           : '<span style="color:#222; font-size:8.5pt;">' + escHtml(sub.description) + '</span>';
         itemRowsHtml += `
@@ -140,8 +140,8 @@ function buildHtmlQuotation(payload, loc, logoDataUri) {
         const epTotal    = formatMyr(ep.price * item.qty);
         const epDescHtml = ep.chargeType
           ? '<table style="width:100%; border-collapse:collapse;"><tr>'
-            + '<td style="color:#222; font-size:8.5pt;">' + escHtml(ep.description) + '</td>'
-            + '<td style="text-align:right; white-space:nowrap; width:1%; padding-left:8px;">' + chargeTag(ep.chargeType) + '</td>'
+            + '<td style="border:none; color:#222; font-size:8.5pt;">' + escHtml(ep.description) + '</td>'
+            + '<td style="border:none; text-align:right; white-space:nowrap; width:1%; padding-left:8px;">' + chargeTag(ep.chargeType) + '</td>'
             + '</tr></table>'
           : '<span style="color:#222; font-size:8.5pt;">' + escHtml(ep.description) + '</span>';
         itemRowsHtml += `

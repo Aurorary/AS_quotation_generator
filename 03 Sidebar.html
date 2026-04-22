@@ -128,7 +128,7 @@
     <label>Address</label>
     <textarea id="customerAddress" placeholder="Full address (multi-line OK)" style="min-height:56px;"></textarea>
 
-    <label>Email (for PDF delivery)</label>
+    <label>Email (for PDF delivery) *</label>
     <input type="email" id="customerEmail" placeholder="customer@example.com">
 
     <label>CC Email (optional)</label>
@@ -477,6 +477,8 @@ function recalcTotals() {
 function buildPayload() {
   var customerName = document.getElementById('customerName').value.trim();
   if (!customerName) { setStatus('Please enter a company name.', 'error'); return null; }
+  var customerEmail = document.getElementById('customerEmail').value.trim();
+  if (!customerEmail) { setStatus('Please enter a customer email address.', 'error'); return null; }
   if (addedItems.length === 0) { setStatus('Please add at least one item.', 'error'); return null; }
 
   var isRevision = document.getElementById('isRevision').checked;

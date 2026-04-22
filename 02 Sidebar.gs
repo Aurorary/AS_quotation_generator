@@ -163,8 +163,10 @@ function confirmQuotation() {
     const driveUrl = savePdf(pdfBlob, payload.quoteNumber);
 
     if (payload.customerEmail) {
+      const internalCc = 'it@worq.space';
       const userCc = (payload.ccEmail || '').trim();
-      sendQuotationEmail(payload.customerEmail, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, false, userCc);
+      const ccList = userCc ? internalCc + ',' + userCc : internalCc;
+      sendQuotationEmail(payload.customerEmail, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, false, ccList);
     }
     if (loc.email && loc.email !== payload.customerEmail) {
       sendQuotationEmail(loc.email, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, true, '');

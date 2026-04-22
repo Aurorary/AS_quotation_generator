@@ -54,7 +54,7 @@ function clearCache() {
 
 // ── Open modal dialog ────────────────────────────────────────
 function openSidebar() {
-  const html = HtmlService.createHtmlOutputFromFile('sidebar')
+  const html = HtmlService.createHtmlOutputFromFile('03 Sidebar')
     .setTitle('Quotation Generator')
     .setWidth(1000)
     .setHeight(750);

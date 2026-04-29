@@ -198,6 +198,67 @@ function sendQuotationEmail(email, customerName, quoteNumber, pdfBlob, driveUrl,
   GmailApp.sendEmail(email, subject, body, opts);
 }
 
+// ── Landing page data: recent quotes (last 30 days) ─────────
+function getRecentQuotes() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tabName = getProp('TRACKER_SHEET_TAB') || 'NEW COMBINED';
+  const sheet = ss.getSheetByName(tabName);
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return [];
+
+  const values = sheet.getRange(2, 1, lastRow - 1, 11).getValues();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+
+  const rows = [];
+  for (let i = 0; i < values.length; i++) {
+    const r = values[i];
+    const dateVal = r[0];
+    if (!dateVal || !(dateVal instanceof Date)) continue;
+    if (dateVal < cutoff) continue;
+    const quoteNumber = r[1] ? r[1].toString().trim() : '';
+    if (!quoteNumber) continue;
+    rows.push({
+      rowIndex: i + 2,
+      date: Utilities.formatDate(dateVal, 'Asia/Kuala_Lumpur', 'dd-MMM-yyyy'),
+      quoteNumber: quoteNumber,
+      customer: r[2] ? r[2].toString().trim() : '',
+      work: r[3] ? r[3].toString().trim() : '',
+      driveUrl: r[5] ? r[5].toString().trim() : '',
+      quotedPrice: parseFloat(r[6]) || 0,
+      status: r[10] ? r[10].toString().trim() : ''
+    });
+  }
+  return rows.reverse();
+}
+
+// ── Initial bundle for web app landing page ─────────────────
+function getWebAppData() {
+  return {
+    user: Session.getActiveUser().getEmail(),
+    isApprover: isApprover(Session.getActiveUser().getEmail()),
+    recentQuotes: getRecentQuotes(),
+    today: Utilities.formatDate(new Date(), 'Asia/Kuala_Lumpur', 'dd-MMM-yyyy')
+  };
+}
+
+// ── Initial bundle for web app New Quote view ───────────────
+function getNewQuoteData() {
+  const locations = getLocations();
+  let defaultLocation = locations.length > 0 ? locations[0].code : 'ITG';
+  const itg = locations.find(function(l) { return l.code === 'ITG'; });
+  if (itg) defaultLocation = 'ITG';
+
+  return {
+    user: Session.getActiveUser().getEmail(),
+    isApprover: isApprover(Session.getActiveUser().getEmail()),
+    locations: locations,
+    defaultLocation: defaultLocation,
+    quoteNumber: getNextQuoteNumber(defaultLocation),
+    today: Utilities.formatDate(new Date(), 'Asia/Kuala_Lumpur', 'dd-MMM-yyyy')
+  };
+}
+
 // ── Update tracker row columns ───────────────────────────────
 function updateTrackerRow(rowIndex, quoteNumber, driveUrl, quotedPrice, costPrice, quoteDate, customerName, work) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();

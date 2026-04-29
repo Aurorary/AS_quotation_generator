@@ -1,0 +1,788 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>WORQ Quotation Generator</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 12px; color: #222; background: #f4f5f7; }
+
+  /* ── App shell ─────────────────────────────────────── */
+  .app-header {
+    background: #1a1a1a; color: #fff; padding: 10px 20px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 3px solid #4a90d9;
+  }
+  .app-header .brand { font-size: 14px; font-weight: bold; letter-spacing: 0.3px; }
+  .app-header .user  { font-size: 11px; color: #bbb; }
+  .app-header .user .badge {
+    display: inline-block; margin-left: 6px; padding: 1px 6px;
+    background: #4a90d9; color: #fff; border-radius: 3px; font-size: 10px;
+  }
+
+  .app-main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+
+  /* ── Landing page ──────────────────────────────────── */
+  .actions-row { display: flex; gap: 10px; margin-bottom: 18px; }
+  .action-btn {
+    flex: 1; padding: 18px; background: #fff; border: 1px solid #ddd; border-radius: 6px;
+    cursor: pointer; font-size: 14px; font-weight: bold; color: #1a1a1a;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .action-btn:hover { border-color: #4a90d9; background: #f7fbff; }
+  .action-btn.primary { background: #4a90d9; color: #fff; border-color: #4a90d9; }
+  .action-btn.primary:hover { background: #357abd; }
+  .action-btn.disabled { opacity: 0.5; cursor: not-allowed; }
+  .action-btn .sub { display: block; font-size: 11px; font-weight: normal; color: #666; margin-top: 4px; }
+  .action-btn.primary .sub { color: #d6e8f7; }
+
+  .card {
+    background: #fff; border: 1px solid #e0e0e0; border-radius: 6px;
+    margin-bottom: 16px; overflow: hidden;
+  }
+  .card-header {
+    padding: 10px 14px; background: #fafafa; border-bottom: 1px solid #eee;
+    font-size: 12px; font-weight: bold; color: #333;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .card-header .count { color: #888; font-weight: normal; font-size: 11px; }
+
+  table.quotes-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.quotes-table th {
+    text-align: left; padding: 8px 14px; background: #f7f7f7; color: #555;
+    font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.4px;
+    border-bottom: 1px solid #eee;
+  }
+  table.quotes-table td {
+    padding: 9px 14px; border-bottom: 1px solid #f0f0f0; vertical-align: middle;
+  }
+  table.quotes-table tr:last-child td { border-bottom: none; }
+  table.quotes-table tr:hover td { background: #fafbfc; }
+  table.quotes-table .qnum { font-family: 'Courier New', monospace; font-size: 11px; color: #1a1a1a; }
+  table.quotes-table .amount { text-align: right; white-space: nowrap; color: #1a1a1a; }
+  table.quotes-table .actions { text-align: right; white-space: nowrap; }
+  table.quotes-table .actions a {
+    color: #4a90d9; text-decoration: none; font-size: 11px; margin-left: 8px;
+  }
+  table.quotes-table .actions a:hover { text-decoration: underline; }
+
+  .status-pill {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.3px;
+  }
+  .status-draft     { background: #eee;     color: #555; }
+  .status-pending-c { background: #ffe4cc; color: #b25c00; }
+  .status-pending-b { background: #fff3c4; color: #8a6800; }
+  .status-yes       { background: #d4f0d4; color: #1f6b1f; }
+  .status-cancelled { background: #f8d7d7; color: #8b1f1f; }
+  .status-unknown   { background: #eee;     color: #888; }
+
+  .empty {
+    padding: 24px; text-align: center; color: #aaa; font-size: 12px;
+  }
+
+  /* ── Quote form view (ported from sidebar) ─────────── */
+  .view { display: none; }
+  .view.active { display: block; }
+
+  .back-bar {
+    margin-bottom: 12px;
+  }
+  .back-bar a {
+    color: #4a90d9; text-decoration: none; font-size: 12px;
+  }
+  .back-bar a:hover { text-decoration: underline; }
+
+  .form-card { background: #fff; border: 1px solid #e0e0e0; border-radius: 6px; padding: 16px; }
+
+  h2 { font-size: 14px; font-weight: bold; margin-bottom: 10px; color: #1a1a1a; }
+  .section-title {
+    font-size: 11px; font-weight: bold; color: #555; text-transform: uppercase;
+    letter-spacing: 0.5px; margin: 14px 0 6px; border-bottom: 1px solid #eee; padding-bottom: 3px;
+  }
+
+  label { display: block; font-size: 11px; font-weight: bold; color: #222; margin-bottom: 2px; }
+  input[type=text], input[type=email], input[type=number], textarea, select {
+    width: 100%; padding: 5px 7px; border: 1px solid #ccc; border-radius: 3px;
+    font-size: 12px; margin-bottom: 6px; font-family: Arial, sans-serif;
+  }
+  textarea { resize: vertical; min-height: 48px; }
+  input:focus, textarea:focus, select:focus { outline: none; border-color: #4a90d9; }
+  input[readonly] { background: #f5f5f5; color: #666; }
+
+  /* Two-column header */
+  .header-cols { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 4px; }
+  .header-cols .col-narrow { flex: 0 0 38%; min-width: 0; }
+  .header-cols .col-wide   { flex: 1; min-width: 0; }
+  .col-divider { border-left: 1px solid #eee; margin: 0 2px; }
+
+  /* Catalogue list */
+  #catalogueSearch { margin-bottom: 4px; }
+  #catalogueList { width: 100%; height: 110px; font-size: 11px; border: 1px solid #ccc;
+                   border-radius: 3px; margin-bottom: 4px; }
+  #catalogueList option { padding: 3px 5px; }
+  #addItemBtn { width: 100%; padding: 5px; background: #4a90d9; color: #fff; border: none;
+                border-radius: 3px; cursor: pointer; font-size: 11px; margin-bottom: 10px; }
+  #addItemBtn:hover { background: #357abd; }
+
+  /* Items table */
+  table#itemsTable { width: 100%; border-collapse: collapse; font-size: 11px; margin-bottom: 4px; }
+  table#itemsTable th { background: #222; color: #fff; padding: 4px 4px; text-align: left; }
+  table#itemsTable th.c { text-align: center; }
+  table#itemsTable th.r { text-align: right; }
+  table#itemsTable td { border-bottom: 1px solid #eee; padding: 3px 4px; vertical-align: top; }
+  table#itemsTable td input { width: 100%; padding: 2px 4px; font-size: 11px; border: 1px solid #ddd;
+                               border-radius: 2px; text-align: right; }
+  table#itemsTable td.r { text-align: right; }
+  table#itemsTable td.c { text-align: center; }
+  .cost-input { background: #fffbe6; border-color: #f0c040 !important; }
+  .remove-btn { background: none; border: none; color: #c00; cursor: pointer; font-size: 13px;
+                line-height: 1; padding: 0 2px; }
+
+  /* Totals */
+  .totals-row { display: flex; justify-content: flex-end; gap: 20px; font-size: 12px; margin: 4px 0; }
+  .totals-row .total-label { color: #555; }
+  .totals-row .total-value { font-weight: bold; min-width: 100px; text-align: right; }
+  .charge-group-totals { margin: 0 0 10px; border-top: 1px solid #eee; padding-top: 4px; }
+
+  /* Generate button */
+  #generateBtn { width: 100%; padding: 10px; background: #2b7d2b; color: #fff; border: none;
+                 border-radius: 4px; font-size: 13px; font-weight: bold; cursor: pointer; margin-top: 4px; }
+  #generateBtn:hover:not(:disabled) { background: #236023; }
+  #generateBtn:disabled { background: #999; cursor: not-allowed; }
+
+  #status { margin-top: 8px; font-size: 11px; min-height: 18px; }
+  #status.error { color: #c00; }
+  #status.success { color: #2b7d2b; }
+  #status.info { color: #555; }
+
+  .spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #ccc;
+             border-top-color: #4a90d9; border-radius: 50%; animation: spin 0.7s linear infinite;
+             vertical-align: middle; margin-right: 5px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .revision-field { display: none; }
+
+  /* Preview panel */
+  #previewPanel { margin-top: 12px; }
+  #previewFrame { width: 100%; height: 700px; border: 1px solid #ccc; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div class="app-header">
+  <div class="brand">WORQ Quotation Generator</div>
+  <div class="user">
+    <span id="userEmail">…</span>
+    <span id="userBadge"></span>
+  </div>
+</div>
+
+<div class="app-main">
+
+  <!-- ============ LANDING VIEW ============ -->
+  <div id="landingView" class="view active">
+
+    <div class="actions-row">
+      <button class="action-btn primary" onclick="showNewQuote()">
+        + New Quote
+        <span class="sub">Create and send a fresh quotation</span>
+      </button>
+      <button class="action-btn disabled" title="Coming in Phase C">
+        ↻ Revise Quote
+        <span class="sub">Coming soon</span>
+      </button>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        Recent quotes <span class="count" id="recentCount">(last 30 days)</span>
+      </div>
+      <div id="recentList">
+        <div class="empty">Loading…</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============ NEW QUOTE VIEW ============ -->
+  <div id="newQuoteView" class="view">
+
+    <div class="back-bar">
+      <a href="#" onclick="showLanding(); return false;">← Back to dashboard</a>
+    </div>
+
+    <div class="form-card">
+
+      <div class="section-title" style="margin-top:0;">Quote &amp; Customer Details</div>
+
+      <div class="header-cols">
+        <div class="col-narrow">
+          <label style="font-size:10px; font-weight:bold; color:#111; text-transform:uppercase; letter-spacing:0.4px; margin-bottom:4px;">Quote Details</label>
+
+          <label>Location</label>
+          <select id="locationSelect" onchange="onLocationChange()"></select>
+
+          <label>Quote Number</label>
+          <input type="text" id="quoteNumberDisplay" readonly>
+
+          <label>Date</label>
+          <input type="text" id="quoteDate" readonly>
+        </div>
+
+        <div class="col-divider"></div>
+
+        <div class="col-wide">
+          <label style="font-size:10px; font-weight:bold; color:#111; text-transform:uppercase; letter-spacing:0.4px; margin-bottom:4px;">Customer Details</label>
+
+          <label>Company Name *</label>
+          <input type="text" id="customerName" placeholder="e.g. Aquilius Investment Partners">
+
+          <label>Work Description</label>
+          <input type="text" id="workDesc" placeholder="e.g. Door access installation">
+
+          <label>Address</label>
+          <textarea id="customerAddress" placeholder="Full address (multi-line OK)" style="min-height:56px;"></textarea>
+
+          <label>Email (for PDF delivery) *</label>
+          <input type="email" id="customerEmail" placeholder="customer@example.com">
+
+          <label>CC Email (optional)</label>
+          <input type="email" id="ccEmail" placeholder="cc@example.com">
+        </div>
+      </div>
+
+      <div class="section-title">Items</div>
+      <label>Search Catalogue</label>
+      <input type="text" id="catalogueSearch" placeholder="Type to filter…" oninput="filterCatalogue()">
+      <select id="catalogueList" size="7"></select>
+      <button id="addItemBtn" onclick="addSelectedItem()">+ Add Item</button>
+
+      <table id="itemsTable">
+        <thead>
+          <tr>
+            <th style="width:28%">Description</th>
+            <th style="width:9%">Cat</th>
+            <th style="width:8%">Type</th>
+            <th class="c" style="width:6%">Qty</th>
+            <th class="r" style="width:12%">Cost Price</th>
+            <th class="r" style="width:12%">Unit Price</th>
+            <th class="r" style="width:12%">Total</th>
+            <th style="width:5%"></th>
+          </tr>
+        </thead>
+        <tbody id="itemsBody">
+          <tr id="emptyRow"><td colspan="8" style="color:#aaa; text-align:center; padding:8px;">No items added</td></tr>
+        </tbody>
+      </table>
+
+      <div id="chargeGroupTotals" class="charge-group-totals" style="display:none;"></div>
+      <div class="totals-row">
+        <span class="total-label">Cost Total:</span>
+        <span class="total-value" id="costTotal">MYR 0.00</span>
+      </div>
+      <div class="totals-row">
+        <span class="total-label">Quoted Total:</span>
+        <span class="total-value" id="quotedTotal" style="font-size:13px; color:#2b7d2b;">MYR 0.00</span>
+      </div>
+
+      <button id="generateBtn" onclick="submitQuotation()">Generate Quotation</button>
+      <div id="status" class="info"></div>
+
+      <div id="previewPanel" style="display:none;">
+        <div style="display:flex; gap:6px; margin-bottom:8px;">
+          <button id="backBtn" onclick="backToForm()" style="flex:1; padding:8px; background:#888; color:#fff; border:none; border-radius:4px; font-size:12px; cursor:pointer;">← Back &amp; Edit</button>
+          <button id="confirmBtn" onclick="confirmQuotation()" style="flex:2; padding:8px; background:#2b7d2b; color:#fff; border:none; border-radius:4px; font-size:13px; font-weight:bold; cursor:pointer;">Confirm &amp; Send</button>
+        </div>
+        <iframe id="previewFrame"></iframe>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── Shared state ─────────────────────────────────────────────
+var allCatalogueItems = [];
+var addedItems = [];
+var locations = [];
+var nextItemId = 1;
+var currentUser = '';
+var currentUserIsApprover = false;
+var newQuoteInitialized = false;
+
+// ── Bootstrap landing page ──────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+  google.script.run
+    .withSuccessHandler(onWebAppData)
+    .withFailureHandler(onError)
+    .getWebAppData();
+});
+
+function onWebAppData(data) {
+  currentUser = data.user || '';
+  currentUserIsApprover = !!data.isApprover;
+  document.getElementById('userEmail').textContent = currentUser;
+  if (currentUserIsApprover) {
+    document.getElementById('userBadge').innerHTML = '<span class="badge">Approver</span>';
+  }
+  renderRecentQuotes(data.recentQuotes || []);
+}
+
+function renderRecentQuotes(quotes) {
+  var listEl = document.getElementById('recentList');
+  document.getElementById('recentCount').textContent = '(' + quotes.length + ' in last 30 days)';
+  if (quotes.length === 0) {
+    listEl.innerHTML = '<div class="empty">No quotes in the last 30 days.</div>';
+    return;
+  }
+  var html = '<table class="quotes-table"><thead><tr>' +
+    '<th>Date</th><th>Quote #</th><th>Customer</th><th>Work</th>' +
+    '<th class="amount">Quoted</th><th>Status</th><th class="actions"></th>' +
+    '</tr></thead><tbody>';
+  quotes.forEach(function(q) {
+    html += '<tr>' +
+      '<td>' + escHtml(q.date) + '</td>' +
+      '<td class="qnum">' + escHtml(q.quoteNumber) + '</td>' +
+      '<td>' + escHtml(q.customer) + '</td>' +
+      '<td style="color:#666;">' + escHtml((q.work || '').slice(0, 40)) + '</td>' +
+      '<td class="amount">RM ' + formatMyr(q.quotedPrice) + '</td>' +
+      '<td>' + statusPill(q.status) + '</td>' +
+      '<td class="actions">' +
+        (q.driveUrl ? '<a href="' + escAttr(q.driveUrl) + '" target="_blank">PDF</a>' : '') +
+      '</td>' +
+    '</tr>';
+  });
+  html += '</tbody></table>';
+  listEl.innerHTML = html;
+}
+
+function statusPill(status) {
+  var s = (status || '').trim();
+  var cls = 'status-unknown';
+  if (s === 'Draft') cls = 'status-draft';
+  else if (s === 'Pending Customer') cls = 'status-pending-c';
+  else if (s === 'Pending Bill') cls = 'status-pending-b';
+  else if (s === 'Yes') cls = 'status-yes';
+  else if (s === 'Cancelled') cls = 'status-cancelled';
+  return '<span class="status-pill ' + cls + '">' + escHtml(s || '—') + '</span>';
+}
+
+// ── View routing ─────────────────────────────────────────────
+function showLanding() {
+  document.getElementById('newQuoteView').classList.remove('active');
+  document.getElementById('landingView').classList.add('active');
+  // Refresh recent list when returning to dashboard
+  google.script.run
+    .withSuccessHandler(function(quotes) { renderRecentQuotes(quotes || []); })
+    .withFailureHandler(onError)
+    .getRecentQuotes();
+}
+
+function showNewQuote() {
+  document.getElementById('landingView').classList.remove('active');
+  document.getElementById('newQuoteView').classList.add('active');
+  if (!newQuoteInitialized) {
+    initNewQuoteView();
+    newQuoteInitialized = true;
+  }
+}
+
+function initNewQuoteView() {
+  setStatus('Loading…', 'info');
+  google.script.run
+    .withSuccessHandler(onNewQuoteData)
+    .withFailureHandler(onError)
+    .getNewQuoteData();
+  google.script.run
+    .withSuccessHandler(onCatalogueLoaded)
+    .withFailureHandler(onError)
+    .getCatalogueItems();
+}
+
+function onNewQuoteData(data) {
+  locations = data.locations || [];
+  populateLocationDropdown(locations, data.defaultLocation);
+  document.getElementById('quoteNumberDisplay').value = data.quoteNumber || '';
+  document.getElementById('quoteDate').value = data.today || '';
+  setStatus('', '');
+}
+
+function onCatalogueLoaded(items) {
+  allCatalogueItems = items || [];
+  renderCatalogueList(allCatalogueItems);
+}
+
+// ── Location dropdown ────────────────────────────────────────
+function populateLocationDropdown(locs, defaultCode) {
+  var sel = document.getElementById('locationSelect');
+  sel.innerHTML = '';
+  locs.forEach(function(l) {
+    var opt = document.createElement('option');
+    opt.value = l.code;
+    var lines = l.fullAddress.split('\n');
+    opt.textContent = lines[0] + ' (' + l.code + ')';
+    sel.appendChild(opt);
+  });
+  if (defaultCode) sel.value = defaultCode;
+}
+
+function onLocationChange() {
+  var code = document.getElementById('locationSelect').value;
+  document.getElementById('quoteNumberDisplay').value = 'Loading…';
+  google.script.run
+    .withSuccessHandler(function(qn) {
+      document.getElementById('quoteNumberDisplay').value = qn;
+    })
+    .withFailureHandler(onError)
+    .getNextQuoteNumber(code);
+}
+
+// ── Catalogue ────────────────────────────────────────────────
+function renderCatalogueList(items) {
+  var list = document.getElementById('catalogueList');
+  list.innerHTML = '';
+  if (items.length === 0) {
+    var opt = document.createElement('option');
+    opt.disabled = true;
+    opt.textContent = '— no items found —';
+    list.appendChild(opt);
+    return;
+  }
+  items.forEach(function(item) {
+    var opt = document.createElement('option');
+    opt.value = allCatalogueItems.indexOf(item);
+    opt.textContent = '[' + item.category + '] ' + (item.brand ? item.brand + ' — ' : '') + item.description.split('\n')[0];
+    list.appendChild(opt);
+  });
+}
+
+function filterCatalogue() {
+  var q = document.getElementById('catalogueSearch').value.toLowerCase().trim();
+  if (!q) { renderCatalogueList(allCatalogueItems); return; }
+  var filtered = allCatalogueItems.filter(function(item) {
+    return (item.category + ' ' + item.brand + ' ' + item.description).toLowerCase().indexOf(q) !== -1;
+  });
+  renderCatalogueList(filtered);
+}
+
+function addSelectedItem() {
+  var list = document.getElementById('catalogueList');
+  var selectedOpt = list.options[list.selectedIndex];
+  if (!selectedOpt || selectedOpt.disabled) return;
+  var idx = parseInt(selectedOpt.value, 10);
+  var item = allCatalogueItems[idx];
+  if (!item) return;
+  var unitPrice = item.price > 0 ? item.price : computeSellingPrice(item.costPrice, 30);
+  addedItems.push({
+    id: nextItemId++,
+    category: item.category,
+    chargeType: item.chargeType || '',
+    description: item.description,
+    isCustom: item.brand === 'Custom Item',
+    subRows: item.subRows || [],
+    extraPriceRows: item.extraPriceRows || [],
+    qty: 1,
+    unitPrice: unitPrice,
+    costPrice: item.costPrice,
+    cataloguePrice: item.price,
+    lineTotal: unitPrice
+  });
+  renderItemsTable();
+  recalcTotals();
+}
+
+// ── Items table ──────────────────────────────────────────────
+function renderItemsTable() {
+  var tbody = document.getElementById('itemsBody');
+  tbody.innerHTML = '';
+  if (addedItems.length === 0) {
+    var tr = document.createElement('tr');
+    tr.id = 'emptyRow';
+    tr.innerHTML = '<td colspan="8" style="color:#aaa; text-align:center; padding:8px;">No items added</td>';
+    tbody.appendChild(tr);
+    return;
+  }
+  addedItems.forEach(function(item) {
+    var tr = document.createElement('tr');
+    var descShort = item.description.split('\n')[0];
+    var typeLabel = item.chargeType || '—';
+    var typeColor = item.chargeType === 'Monthly' ? '#0066cc' : (item.chargeType === 'One-Off' ? '#555' : '#aaa');
+    var descCell = item.isCustom
+      ? '<td><input type="text" value="' + escHtml(descShort) + '" placeholder="Enter description…" style="width:100%; padding:2px 4px; font-size:11px; border:1px solid #ddd; border-radius:2px;" onchange="onDescChange(' + item.id + ', this.value)"></td>'
+      : '<td title="' + escHtml(item.description) + '">' + escHtml(descShort) + '</td>';
+    var costCell = item.isCustom
+      ? '<td class="r"><input type="number" min="0" step="0.01" value="' + (item.costPrice || 0).toFixed(2) + '" class="cost-input" style="width:68px;" placeholder="Cost…" onchange="onCostChange(' + item.id + ', this.value)" title="Enter cost price — unit price auto-calculates at 30% margin"></td>'
+      : '<td class="r" style="color:#aaa; font-size:10px;">' + (item.costPrice > 0 ? formatMyr(item.costPrice) : '—') + '</td>';
+    tr.innerHTML =
+      descCell +
+      '<td style="font-size:10px; color:#666;">' + escHtml(item.category) + '</td>' +
+      '<td style="font-size:10px; color:' + typeColor + ';">' + escHtml(typeLabel) + '</td>' +
+      '<td class="c"><input type="number" min="1" value="' + item.qty + '" style="width:55px; text-align:center;" onchange="onQtyChange(' + item.id + ', this.value)"></td>' +
+      costCell +
+      '<td class="r"><input type="number" min="0" step="0.01" value="' + item.unitPrice.toFixed(2) + '" style="width:68px;" onchange="onPriceChange(' + item.id + ', this.value)"></td>' +
+      '<td class="r">' + formatMyr(item.lineTotal) + '</td>' +
+      '<td class="c"><button class="remove-btn" onclick="removeItem(' + item.id + ')" title="Remove">✕</button></td>';
+    tbody.appendChild(tr);
+  });
+}
+
+function onQtyChange(id, val) {
+  var item = addedItems.find(function(i) { return i.id === id; });
+  if (!item) return;
+  item.qty = Math.max(1, parseInt(val, 10) || 1);
+  item.lineTotal = round2(item.qty * item.unitPrice);
+  renderItemsTable(); recalcTotals();
+}
+
+function onPriceChange(id, val) {
+  var item = addedItems.find(function(i) { return i.id === id; });
+  if (!item) return;
+  item.unitPrice = parseFloat(val) || 0;
+  item.lineTotal = round2(item.qty * item.unitPrice);
+  renderItemsTable(); recalcTotals();
+}
+
+function removeItem(id) {
+  addedItems = addedItems.filter(function(i) { return i.id !== id; });
+  renderItemsTable(); recalcTotals();
+}
+
+function onDescChange(id, val) {
+  var item = addedItems.find(function(i) { return i.id === id; });
+  if (!item) return;
+  item.description = val.trim();
+}
+
+function onCostChange(id, val) {
+  var item = addedItems.find(function(i) { return i.id === id; });
+  if (!item) return;
+  item.costPrice = parseFloat(val) || 0;
+  item.unitPrice = computeSellingPrice(item.costPrice, 30);
+  item.lineTotal = round2(item.qty * item.unitPrice);
+  renderItemsTable(); recalcTotals();
+}
+
+function computeSellingPrice(costPrice, markupPct) {
+  if (!costPrice) return 0;
+  var divisor = 1 - (markupPct / 100);
+  var raw = costPrice / divisor;
+  return Math.ceil(raw / 10) * 10;
+}
+
+// ── Totals ───────────────────────────────────────────────────
+function recalcTotals() {
+  var quotedSum = 0, costSum = 0;
+  var groups = {};
+  addedItems.forEach(function(item) {
+    quotedSum += item.lineTotal;
+    costSum += round2(item.costPrice * item.qty);
+    var ct = item.chargeType || 'Other';
+    groups[ct] = (groups[ct] || 0) + item.lineTotal;
+    (item.subRows || []).filter(function(s) { return s.price > 0; }).forEach(function(sub) {
+      quotedSum += sub.price * item.qty;
+      costSum += round2(sub.costPrice * item.qty);
+      var sct = sub.chargeType || 'Other';
+      groups[sct] = (groups[sct] || 0) + sub.price * item.qty;
+    });
+    (item.extraPriceRows || []).forEach(function(ep) {
+      quotedSum += ep.price * item.qty;
+      costSum += round2(ep.costPrice * item.qty);
+      var ect = ep.chargeType || 'Other';
+      groups[ect] = (groups[ect] || 0) + ep.price * item.qty;
+    });
+  });
+  document.getElementById('quotedTotal').textContent = 'MYR ' + formatMyr(quotedSum);
+  document.getElementById('costTotal').textContent   = 'MYR ' + formatMyr(costSum);
+
+  var groupEl = document.getElementById('chargeGroupTotals');
+  var keys = Object.keys(groups);
+  if (keys.length <= 1) {
+    groupEl.style.display = 'none';
+    groupEl.innerHTML = '';
+  } else {
+    var html = '';
+    keys.forEach(function(ct) {
+      var color = ct === 'Monthly' ? '#0066cc' : '#555';
+      html += '<div class="totals-row" style="margin-bottom:2px;">' +
+        '<span class="total-label" style="color:' + color + ';">' + escHtml(ct) + ':</span>' +
+        '<span class="total-value" style="color:' + color + ';">MYR ' + formatMyr(groups[ct]) + '</span>' +
+        '</div>';
+    });
+    groupEl.innerHTML = html;
+    groupEl.style.display = 'block';
+  }
+}
+
+// ── Build payload ────────────────────────────────────────────
+function buildPayload() {
+  var customerName = document.getElementById('customerName').value.trim();
+  if (!customerName) { setStatus('Please enter a company name.', 'error'); return null; }
+  var customerEmail = document.getElementById('customerEmail').value.trim();
+  if (!customerEmail) { setStatus('Please enter a customer email address.', 'error'); return null; }
+  if (addedItems.length === 0) { setStatus('Please add at least one item.', 'error'); return null; }
+
+  var quoteNumber = document.getElementById('quoteNumberDisplay').value.trim();
+  if (!quoteNumber) { setStatus('Quote number is missing.', 'error'); return null; }
+
+  var quotedSum = 0, costSum = 0;
+  addedItems.forEach(function(item) {
+    quotedSum += item.lineTotal;
+    costSum += round2(item.costPrice * item.qty);
+    (item.subRows || []).filter(function(s) { return s.price > 0; }).forEach(function(s) {
+      quotedSum += s.price * item.qty;
+      costSum += round2(s.costPrice * item.qty);
+    });
+    (item.extraPriceRows || []).forEach(function(ep) {
+      quotedSum += ep.price * item.qty;
+      costSum += round2(ep.costPrice * item.qty);
+    });
+  });
+
+  return {
+    rowIndex: null,
+    locationCode: document.getElementById('locationSelect').value,
+    quoteNumber: quoteNumber,
+    isRevision: false,
+    quoteDate: document.getElementById('quoteDate').value,
+    customerName: customerName,
+    work: document.getElementById('workDesc').value.trim(),
+    customerAddress: document.getElementById('customerAddress').value.trim(),
+    customerEmail: document.getElementById('customerEmail').value.trim(),
+    ccEmail: document.getElementById('ccEmail').value.trim(),
+    items: addedItems.map(function(item) {
+      return {
+        description: item.description,
+        subRows: item.subRows || [],
+        extraPriceRows: item.extraPriceRows || [],
+        category: item.category,
+        chargeType: item.chargeType || '',
+        qty: item.qty,
+        unitPrice: item.unitPrice,
+        catalogueCostPrice: item.costPrice,
+        lineTotal: item.lineTotal
+      };
+    }),
+    quotedPrice: round2(quotedSum),
+    costPrice: round2(costSum)
+  };
+}
+
+// ── Preview / Confirm ────────────────────────────────────────
+function submitQuotation() {
+  var payload = buildPayload();
+  if (!payload) return;
+  document.getElementById('generateBtn').disabled = true;
+  setStatus('<span class="spinner"></span> Building preview…', 'info');
+  google.script.run
+    .withSuccessHandler(onPreviewDone)
+    .withFailureHandler(onGenerateError)
+    .previewQuotation(payload);
+}
+
+function onPreviewDone(result) {
+  document.getElementById('generateBtn').disabled = false;
+  if (!result.success) { setStatus('Error: ' + (result.error || 'Unknown error'), 'error'); return; }
+  document.getElementById('previewPanel').style.display = 'block';
+  document.getElementById('generateBtn').style.display = 'none';
+  setStatus('Review the quotation below, then confirm to send.', 'info');
+  var blob = new Blob([result.html], { type: 'text/html' });
+  var url = URL.createObjectURL(blob);
+  document.getElementById('previewFrame').src = url;
+}
+
+function confirmQuotation() {
+  document.getElementById('confirmBtn').disabled = true;
+  document.getElementById('backBtn').disabled = true;
+  setStatus('<span class="spinner"></span> Saving and sending…', 'info');
+  google.script.run
+    .withSuccessHandler(onConfirmDone)
+    .withFailureHandler(onGenerateError)
+    .confirmQuotation();
+}
+
+function onConfirmDone(result) {
+  document.getElementById('confirmBtn').disabled = false;
+  document.getElementById('backBtn').disabled = false;
+  if (result.success) {
+    setStatus('✓ Sent! <a href="' + result.pdfUrl + '" target="_blank">Open PDF</a> · <a href="#" onclick="resetForm(); return false;">Start another</a>', 'success');
+    document.getElementById('confirmBtn').style.display = 'none';
+    document.getElementById('backBtn').textContent = '← Back to dashboard';
+    document.getElementById('backBtn').onclick = function() { resetForm(); showLanding(); };
+  } else {
+    setStatus('Error: ' + (result.error || 'Unknown error'), 'error');
+  }
+}
+
+function backToForm() {
+  document.getElementById('previewPanel').style.display = 'none';
+  document.getElementById('generateBtn').style.display = 'block';
+  document.getElementById('generateBtn').disabled = false;
+  document.getElementById('confirmBtn').disabled = false;
+  document.getElementById('backBtn').disabled = false;
+  setStatus('', '');
+}
+
+function resetForm() {
+  addedItems = [];
+  ['customerName', 'workDesc', 'customerAddress', 'customerEmail', 'ccEmail', 'catalogueSearch'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  document.getElementById('previewPanel').style.display = 'none';
+  document.getElementById('generateBtn').style.display = 'block';
+  document.getElementById('generateBtn').disabled = false;
+  document.getElementById('backBtn').textContent = '← Back & Edit';
+  document.getElementById('backBtn').onclick = backToForm;
+  document.getElementById('confirmBtn').style.display = 'block';
+  renderItemsTable();
+  recalcTotals();
+  // Refresh quote number for next one
+  google.script.run
+    .withSuccessHandler(function(qn) {
+      document.getElementById('quoteNumberDisplay').value = qn;
+    })
+    .withFailureHandler(onError)
+    .getNextQuoteNumber(document.getElementById('locationSelect').value);
+  setStatus('', '');
+}
+
+function onGenerateError(err) {
+  document.getElementById('generateBtn').disabled = false;
+  var btn = document.getElementById('confirmBtn');
+  if (btn) btn.disabled = false;
+  setStatus('Error: ' + err.message, 'error');
+}
+
+function onError(err) {
+  setStatus('Error: ' + (err.message || err), 'error');
+}
+
+// ── Helpers ──────────────────────────────────────────────────
+function setStatus(html, cls) {
+  var el = document.getElementById('status');
+  if (!el) return;
+  el.innerHTML = html;
+  el.className = cls;
+}
+
+function formatMyr(val) {
+  var n = parseFloat(val) || 0;
+  return n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function round2(v) { return Math.round(v * 100) / 100; }
+
+function escHtml(str) {
+  return (str || '').toString()
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function escAttr(str) {
+  return (str || '').toString().replace(/"/g, '&quot;');
+}
+</script>
+</body>
+</html>

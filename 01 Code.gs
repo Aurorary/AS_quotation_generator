@@ -61,6 +61,26 @@ function openSidebar() {
   SpreadsheetApp.getUi().showModalDialog(html, 'Quotation Generator');
 }
 
+// ── Web app entry point ──────────────────────────────────────
+function doGet() {
+  return HtmlService.createHtmlOutputFromFile('08 WebApp')
+    .setTitle('WORQ Quotation Generator')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+}
+
+// ── Current viewer (used by web app for permission gating) ──
+function getCurrentUser() {
+  return Session.getActiveUser().getEmail();
+}
+
+const APPROVER_EMAILS = ['afdhal@worq.space'];
+const APPROVAL_THRESHOLD_MYR = 10000;
+
+function isApprover(email) {
+  return APPROVER_EMAILS.indexOf((email || '').toLowerCase()) !== -1;
+}
+
 // ── Get selected row data (for revision pre-fill) ───────────
 function getSelectedRowData() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();

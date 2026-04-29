@@ -163,14 +163,13 @@ function confirmQuotation() {
     const driveUrl = savePdf(pdfBlob, payload.quoteNumber, payload.customerName);
 
     if (payload.customerEmail) {
-      const internalCc = 'it@worq.space';
-      const userCc = (payload.ccEmail || '').trim();
-      const ccList = userCc ? internalCc + ',' + userCc : internalCc;
+      const ccList = (payload.ccEmail || '').trim();
       sendQuotationEmail(payload.customerEmail, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, false, ccList);
     }
-    if (loc.email && loc.email !== payload.customerEmail) {
-      sendQuotationEmail(loc.email, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, true, '');
-    }
+    // Disabled during testing — re-enable to copy the WORQ location's email
+    // if (loc.email && loc.email !== payload.customerEmail) {
+    //   sendQuotationEmail(loc.email, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, true, '');
+    // }
 
     updateTrackerRow(payload.rowIndex, payload.quoteNumber, driveUrl, payload.quotedPrice, payload.costPrice, payload.quoteDate, payload.customerName, payload.work);
 
@@ -187,7 +186,7 @@ function sendQuotationEmail(email, customerName, quoteNumber, pdfBlob, driveUrl,
   const subject = 'Quotation ' + quoteNumber + ' — WORQ';
   const body = isCc
     ? 'Please find attached the quotation ' + quoteNumber + ' for ' + customerName + '.\n\nDrive link: ' + driveUrl
-    : 'Dear ' + customerName + ',\n\nPlease find attached your quotation ' + quoteNumber + '.\n\nShould you have any questions, feel free to reach out.\n\nBest regards,\nWORQ Team\n\nDrive link: ' + driveUrl;
+    : 'Dear ' + customerName + ',\n\nPlease find attached your quotation ' + quoteNumber + '.\n\nShould you have any questions, feel free to reach out.\n\nBest regards,\nWORQ Team';
 
   const opts = {
     attachments: [pdfBlob.setName(buildPdfFileName(quoteNumber, customerName))],

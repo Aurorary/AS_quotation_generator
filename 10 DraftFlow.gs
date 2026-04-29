@@ -135,10 +135,10 @@ function rejectDraft(draftRow, note) {
 
     const quoteNumber = (rowVals[1] || '').toString().trim();
     const customerName = (rowVals[2] || '').toString().trim();
-    const drafter = (rowVals[12] || '').toString().trim(); // M = 13 → index 12
+    const drafter = (rowVals[13] || '').toString().trim(); // N = 14 → index 13
 
     sheet.getRange(draftRow, 11).setValue('Cancelled');
-    sheet.getRange(draftRow, 14).setValue(trimmed); // N = 14
+    sheet.getRange(draftRow, 15).setValue(trimmed); // O = 15
 
     if (drafter) {
       const subject = '[Draft rejected] ' + quoteNumber + ' — ' + customerName;
@@ -175,7 +175,7 @@ function getDraftsAwaitingApproval() {
     const r = values[i];
     const status = r[10] ? r[10].toString().trim() : '';
     if (status !== 'Draft') continue;
-    const drafter = r[12] ? r[12].toString().trim() : '';
+    const drafter = r[13] ? r[13].toString().trim() : '';
     if (!isApp && drafter !== me) continue;
     out.push({
       rowIndex: i + 2,
@@ -231,7 +231,7 @@ function getDraftForEdit(draftRow) {
     success: true,
     draftRow: draftRow,
     quoteNumber: quoteNumber,
-    drafter: rowVals[12] ? rowVals[12].toString().trim() : '',
+    drafter: rowVals[13] ? rowVals[13].toString().trim() : '',
     payload: payload
   };
 }

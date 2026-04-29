@@ -655,6 +655,15 @@ function renderRecentQuotes(quotes) {
 function rowActions(q) {
   // PDF link kept as a quick-access affordance; ⋯ menu handles the rest.
   var pdfLink = q.driveUrl ? '<a href="' + escAttr(q.driveUrl) + '" target="_blank">PDF</a>' : '';
+
+  // Fast-path: Pending Bill rows get an inline "+ Invoice #" button so the
+  // common case (mark billed once invoice exists) is one click instead of
+  // ⋯ → "Mark Billed".
+  var fastPath = '';
+  if (q.status === 'Pending Bill') {
+    fastPath = ' <a href="#" onclick="promptInvoiceAndMarkBilled(' + q.rowIndex + '); return false;" style="color:#1f6b1f;">+ Invoice #</a>';
+  }
+
   var menuId = 'menu_' + q.rowIndex;
   var items = [];
   if (q.status !== 'Pending Customer') items.push({ s: 'Pending Customer', label: 'Mark Pending Customer' });
@@ -668,7 +677,7 @@ function rowActions(q) {
            escHtml(it.label) + '</a>';
   }).join('');
 
-  return pdfLink +
+  return pdfLink + fastPath +
     ' <span class="row-menu">' +
       '<button class="row-menu-btn" onclick="toggleRowMenu(\'' + menuId + '\', event)" title="More actions">⋯</button>' +
       '<div class="row-menu-popup" id="' + menuId + '" style="display:none;">' + menuHtml + '</div>' +

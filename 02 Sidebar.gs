@@ -257,8 +257,8 @@ function markBilled(rowIndex, invoiceNumber) {
   if (rowIndex < 2 || rowIndex > lastRow) {
     return { success: false, error: 'Row ' + rowIndex + ' is out of range' };
   }
-  // Write both cells; column M=Drafted by, N=Rejection note, O=Invoice number
-  sheet.getRange(rowIndex, 15).setValue(inv);    // O = 15
+  // Write both cells; column M=Invoice number, N=Drafted by, O=Rejection note
+  sheet.getRange(rowIndex, 13).setValue(inv);    // M = 13
   sheet.getRange(rowIndex, 11).setValue('Billed'); // K = 11
   return { success: true };
 }
@@ -293,7 +293,7 @@ function getRecentQuotes() {
       driveUrl: r[5] ? r[5].toString().trim() : '',
       quotedPrice: parseFloat(r[6]) || 0,
       status: r[10] ? r[10].toString().trim() : '',
-      invoiceNumber: r[14] ? r[14].toString().trim() : ''
+      invoiceNumber: r[12] ? r[12].toString().trim() : ''
     });
   }
   return rows.reverse();
@@ -351,7 +351,7 @@ function appendTrackerRow(quoteNumber, driveUrl, quotedPrice, costPrice, quoteDa
     SpreadsheetApp.CopyPasteType.PASTE_DATA_VALIDATION, false
   );
 
-  // A=Date, B=Quote#, C=Customer, D=Work, F=Doc Link, G=Quoted, H=Cost, I=Profit, J=Margin, K=Status, M=Drafted by
+  // A=Date, B=Quote#, C=Customer, D=Work, F=Doc Link, G=Quoted, H=Cost, I=Profit, J=Margin, K=Status, N=Drafted by
   sheet.getRange(newRow, 1).setValue(quoteDate);
   sheet.getRange(newRow, 2).setValue(quoteNumber);
   sheet.getRange(newRow, 3).setValue(customerName);
@@ -362,7 +362,7 @@ function appendTrackerRow(quoteNumber, driveUrl, quotedPrice, costPrice, quoteDa
   sheet.getRange(newRow, 9).setValue(profit);
   sheet.getRange(newRow, 10).setValue(margin);
   sheet.getRange(newRow, 11).setValue(status || 'Pending Customer');
-  if (draftedBy) sheet.getRange(newRow, 13).setValue(draftedBy); // M = 13
+  if (draftedBy) sheet.getRange(newRow, 14).setValue(draftedBy); // N = 14
   return newRow;
 }
 

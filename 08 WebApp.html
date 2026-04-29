@@ -391,6 +391,10 @@
         <span class="total-label">Quoted Total:</span>
         <span class="total-value" id="quotedTotal" style="font-size:13px; color:#2b7d2b;">MYR 0.00</span>
       </div>
+      <div class="totals-row" id="marginRow" style="display:none;">
+        <span class="total-label">Margin:</span>
+        <span class="total-value" id="marginValue"></span>
+      </div>
 
       <button id="generateBtn" onclick="submitQuotation()">Generate Quotation</button>
       <div id="status" class="info"></div>
@@ -1247,6 +1251,24 @@ function recalcTotals() {
   });
   document.getElementById('quotedTotal').textContent = 'MYR ' + formatMyr(quotedSum);
   document.getElementById('costTotal').textContent   = 'MYR ' + formatMyr(costSum);
+
+  // Margin guardrail — warn when below 20%
+  var marginRow = document.getElementById('marginRow');
+  var marginVal = document.getElementById('marginValue');
+  if (quotedSum > 0 && costSum > 0) {
+    var marginPct = ((quotedSum - costSum) / quotedSum) * 100;
+    var pctText = marginPct.toFixed(1) + '%';
+    if (marginPct < 20) {
+      marginVal.innerHTML = pctText + ' <span style="background:#fff3c4; color:#8a6800; font-size:10px; font-weight:bold; padding:1px 6px; border-radius:8px; margin-left:4px;">LOW MARGIN</span>';
+      marginVal.style.color = '#b45000';
+    } else {
+      marginVal.innerHTML = pctText;
+      marginVal.style.color = '#2b7d2b';
+    }
+    marginRow.style.display = 'flex';
+  } else {
+    marginRow.style.display = 'none';
+  }
 
   var groupEl = document.getElementById('chargeGroupTotals');
   var keys = Object.keys(groups);

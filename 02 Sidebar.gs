@@ -276,6 +276,9 @@ function getRecentQuotes() {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 30);
 
+  // Dashboard is a worklist — hide quotes that no longer drive action
+  const HIDDEN_STATUSES = { 'Billed': true, 'Cancelled': true };
+
   const rows = [];
   for (let i = 0; i < values.length; i++) {
     const r = values[i];
@@ -284,6 +287,8 @@ function getRecentQuotes() {
     if (dateVal < cutoff) continue;
     const quoteNumber = r[1] ? r[1].toString().trim() : '';
     if (!quoteNumber) continue;
+    const status = r[10] ? r[10].toString().trim() : '';
+    if (HIDDEN_STATUSES[status]) continue;
     rows.push({
       rowIndex: i + 2,
       date: Utilities.formatDate(dateVal, 'Asia/Kuala_Lumpur', 'dd-MMM-yyyy'),
@@ -292,7 +297,7 @@ function getRecentQuotes() {
       work: r[3] ? r[3].toString().trim() : '',
       driveUrl: r[5] ? r[5].toString().trim() : '',
       quotedPrice: parseFloat(r[6]) || 0,
-      status: r[10] ? r[10].toString().trim() : '',
+      status: status,
       invoiceNumber: r[12] ? r[12].toString().trim() : ''
     });
   }

@@ -101,6 +101,11 @@ function getQuoteHistory(limit) {
     });
   }
 
+  // Quotes that no longer make sense to revise. Drafts are skipped because
+  // they're handled in the approval flow; Billed is skipped because the
+  // invoice is already issued — start a new quote instead.
+  const HIDDEN_FROM_REVISE = { 'Billed': true, 'Draft': true };
+
   const start = Math.max(2, lastRow - max + 1);
   const values = sheet.getRange(start, 1, lastRow - start + 1, 3).getValues();
   const out = [];
@@ -108,6 +113,7 @@ function getQuoteHistory(limit) {
     const qn = (values[i][0] || '').toString().trim();
     if (!qn) continue;
     const t = trackerByQuote[qn] || {};
+    if (HIDDEN_FROM_REVISE[t.status]) continue;
     out.push({
       quoteNumber: qn,
       parentQuoteNumber: (values[i][1] || '').toString().trim(),

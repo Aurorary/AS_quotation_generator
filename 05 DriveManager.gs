@@ -9,7 +9,8 @@ function savePdf(pdfBlob, quoteNumber, customerName) {
   pdfBlob.setName(buildPdfFileName(quoteNumber, customerName));
 
   const file = folder.createFile(pdfBlob);
-  file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+  // Sharing is inherited from the parent folder — explicit setSharing fails
+  // when the executing identity isn't the folder/file owner.
 
   return file.getUrl();
 }

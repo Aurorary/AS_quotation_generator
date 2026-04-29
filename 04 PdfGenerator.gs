@@ -200,12 +200,12 @@ function buildHtmlQuotation(payload, loc, logoDataUri) {
 }
 
 // ── Convert HTML string → PDF blob ──────────────────────────
-function convertHtmlToPdf(htmlString, quoteNumber, customerName) {
+function convertHtmlToPdf(htmlString, quoteNumber, customerName, prefix) {
   const blob = Utilities.newBlob(htmlString, 'text/html', 'temp-quote.html');
   const tempFile = DriveApp.createFile(blob);
   try {
     const pdfBlob = tempFile.getAs('application/pdf');
-    pdfBlob.setName(buildPdfFileName(quoteNumber, customerName));
+    pdfBlob.setName(buildPdfFileName(quoteNumber, customerName, prefix));
     return pdfBlob;
   } finally {
     tempFile.setTrashed(true);
@@ -213,10 +213,12 @@ function convertHtmlToPdf(htmlString, quoteNumber, customerName) {
 }
 
 // ── Build PDF filename: "WORQ-STO-2026-15 (Customer Name).pdf" ──
-function buildPdfFileName(quoteNumber, customerName) {
+// Optional prefix (e.g. "[DRAFT] ") is preserved before the safe-encoded name.
+function buildPdfFileName(quoteNumber, customerName, prefix) {
   const safeQuote = (quoteNumber || '').replace(/\//g, '-');
   const safeCust  = (customerName || '').replace(/[\\/:*?"<>|]/g, '').trim();
-  return safeCust ? safeQuote + ' (' + safeCust + ').pdf' : safeQuote + '.pdf';
+  const base = safeCust ? safeQuote + ' (' + safeCust + ').pdf' : safeQuote + '.pdf';
+  return (prefix || '') + base;
 }
 
 // ── Helpers ──────────────────────────────────────────────────

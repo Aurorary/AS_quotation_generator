@@ -151,6 +151,18 @@ function confirmQuotation() {
     if (!raw) throw new Error('Preview expired. Please generate the preview again.');
 
     const payload = JSON.parse(raw);
+
+    // Server-side enforcement: non-approvers can't send ≥ RM 10K directly.
+    // (Frontend hides Send Now in this case, but enforce here too.)
+    const me = Session.getActiveUser().getEmail();
+    const gross = parseFloat(payload.quotedPrice) || 0;
+    if (!isApprover(me) && gross >= APPROVAL_THRESHOLD_MYR) {
+      return {
+        success: false,
+        error: 'Quotes ≥ RM ' + APPROVAL_THRESHOLD_MYR.toLocaleString() + ' require approval. Save as draft instead.'
+      };
+    }
+
     cache.remove('pendingPayload');
 
     const locations = getLocations();
@@ -160,7 +172,8 @@ function confirmQuotation() {
     const logoDataUri = getLogoBase64();
     const htmlString = buildHtmlQuotation(payload, loc, logoDataUri);
     const pdfBlob = convertHtmlToPdf(htmlString, payload.quoteNumber, payload.customerName);
-    const driveUrl = savePdf(pdfBlob, payload.quoteNumber, payload.customerName);
+    const saved = savePdf(pdfBlob, payload.quoteNumber, payload.customerName);
+    const driveUrl = saved.url;
 
     if (payload.customerEmail) {
       const ccList = (payload.ccEmail || '').trim();
@@ -313,8 +326,10 @@ function getNewQuoteData() {
   };
 }
 
-// ── Update tracker row columns ───────────────────────────────
-function updateTrackerRow(rowIndex, quoteNumber, driveUrl, quotedPrice, costPrice, quoteDate, customerName, work) {
+// ── Append a new tracker row ─────────────────────────────────
+// status defaults to 'Pending Customer' (the legacy send path).
+// draftedBy populates column M when set (used by saveDraft).
+function appendTrackerRow(quoteNumber, driveUrl, quotedPrice, costPrice, quoteDate, customerName, work, status, draftedBy) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const tabName = getProp('TRACKER_SHEET_TAB') || 'NEW COMBINED';
   const sheet = ss.getSheetByName(tabName);
@@ -322,11 +337,11 @@ function updateTrackerRow(rowIndex, quoteNumber, driveUrl, quotedPrice, costPric
   const profit = quotedPrice - costPrice;
   const margin = quotedPrice > 0 ? Math.round((profit / quotedPrice) * 100) + '%' : '0%';
 
-  // Always append a new row (revisions get their own row with Rev# in the quote number)
   const lastRow = sheet.getLastRow();
   const newRow = lastRow + 1;
 
-  // Copy format + validation from previous row
+  // Copy format + validation from previous row (covers columns A:K so dropdown
+  // validation transfers; M/N/O remain plain text columns and don't need it)
   sheet.getRange(lastRow, 1, 1, 11).copyTo(
     sheet.getRange(newRow, 1, 1, 11),
     SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false
@@ -336,7 +351,7 @@ function updateTrackerRow(rowIndex, quoteNumber, driveUrl, quotedPrice, costPric
     SpreadsheetApp.CopyPasteType.PASTE_DATA_VALIDATION, false
   );
 
-  // A=Date, B=Quote#, C=Customer, D=Work, F=Doc Link, G=Quoted, H=Cost, I=Profit, J=Margin, K=Billed?
+  // A=Date, B=Quote#, C=Customer, D=Work, F=Doc Link, G=Quoted, H=Cost, I=Profit, J=Margin, K=Status, M=Drafted by
   sheet.getRange(newRow, 1).setValue(quoteDate);
   sheet.getRange(newRow, 2).setValue(quoteNumber);
   sheet.getRange(newRow, 3).setValue(customerName);
@@ -346,5 +361,12 @@ function updateTrackerRow(rowIndex, quoteNumber, driveUrl, quotedPrice, costPric
   sheet.getRange(newRow, 8).setValue(costPrice);
   sheet.getRange(newRow, 9).setValue(profit);
   sheet.getRange(newRow, 10).setValue(margin);
-  sheet.getRange(newRow, 11).setValue('Pending Customer');
+  sheet.getRange(newRow, 11).setValue(status || 'Pending Customer');
+  if (draftedBy) sheet.getRange(newRow, 13).setValue(draftedBy); // M = 13
+  return newRow;
+}
+
+// Back-compat wrapper for existing callers (sidebar etc.)
+function updateTrackerRow(rowIndex, quoteNumber, driveUrl, quotedPrice, costPrice, quoteDate, customerName, work) {
+  return appendTrackerRow(quoteNumber, driveUrl, quotedPrice, costPrice, quoteDate, customerName, work, 'Pending Customer', '');
 }

@@ -248,6 +248,13 @@
       </button>
     </div>
 
+    <div class="card" id="draftsCard" style="display:none;">
+      <div class="card-header" id="draftsCardHeader">Drafts awaiting your approval</div>
+      <div id="draftsList">
+        <div class="empty">Loading…</div>
+      </div>
+    </div>
+
     <div class="card">
       <div class="card-header">
         Recent quotes <span class="count" id="recentCount">(last 30 days)</span>
@@ -257,6 +264,27 @@
       </div>
     </div>
 
+  </div>
+
+  <!-- ============ REVIEW DRAFT VIEW ============ -->
+  <div id="reviewDraftView" class="view">
+    <div class="back-bar">
+      <a href="#" onclick="showLanding(); return false;">← Back to dashboard</a>
+    </div>
+    <div class="card">
+      <div class="card-header">
+        Reviewing draft <span class="count" id="reviewDraftSubtitle"></span>
+      </div>
+      <div style="padding: 12px 14px;">
+        <div style="display:flex; gap:6px; margin-bottom:10px; align-items:stretch;">
+          <button onclick="rejectFromReview()" style="flex:1; padding:8px; background:#c0392b; color:#fff; border:none; border-radius:4px; font-size:12px; font-weight:bold; cursor:pointer;">Reject with note</button>
+          <button onclick="editDraftFromReview()" style="flex:1; padding:8px; background:#888; color:#fff; border:none; border-radius:4px; font-size:12px; font-weight:bold; cursor:pointer;">Edit</button>
+          <button onclick="approveFromReview()" style="flex:2; padding:8px; background:#2b7d2b; color:#fff; border:none; border-radius:4px; font-size:13px; font-weight:bold; cursor:pointer;">Approve &amp; Send</button>
+        </div>
+        <iframe id="reviewDraftFrame" style="width:100%; height:700px; border:1px solid #ccc; border-radius:3px;"></iframe>
+        <div id="reviewDraftStatus" class="info" style="margin-top:8px; font-size:11px;"></div>
+      </div>
+    </div>
   </div>
 
   <!-- ============ REVISE VIEW ============ -->
@@ -368,10 +396,12 @@
       <div id="status" class="info"></div>
 
       <div id="previewPanel" style="display:none;">
-        <div style="display:flex; gap:6px; margin-bottom:8px;">
+        <div style="display:flex; gap:6px; margin-bottom:8px; align-items:stretch;">
           <button id="backBtn" onclick="backToForm()" style="flex:1; padding:8px; background:#888; color:#fff; border:none; border-radius:4px; font-size:12px; cursor:pointer;">← Back &amp; Edit</button>
-          <button id="confirmBtn" onclick="confirmQuotation()" style="flex:2; padding:8px; background:#2b7d2b; color:#fff; border:none; border-radius:4px; font-size:13px; font-weight:bold; cursor:pointer;">Confirm &amp; Send</button>
+          <button id="saveDraftBtn" onclick="saveDraft()" style="flex:1; padding:8px; background:#7a6cd6; color:#fff; border:none; border-radius:4px; font-size:13px; font-weight:bold; cursor:pointer;">Save as Draft</button>
+          <button id="confirmBtn" onclick="confirmQuotation()" style="flex:2; padding:8px; background:#2b7d2b; color:#fff; border:none; border-radius:4px; font-size:13px; font-weight:bold; cursor:pointer;">Send Now</button>
         </div>
+        <div id="thresholdNotice" style="display:none; background:#fff8e1; border:1px solid #f0c040; border-radius:4px; padding:6px 10px; margin-bottom:8px; font-size:11px; color:#8a6800;"></div>
         <iframe id="previewFrame"></iframe>
       </div>
 
@@ -406,6 +436,190 @@ function onWebAppData(data) {
     document.getElementById('userBadge').innerHTML = '<span class="badge">Approver</span>';
   }
   renderRecentQuotes(data.recentQuotes || []);
+  loadDrafts();
+}
+
+function loadDrafts() {
+  google.script.run
+    .withSuccessHandler(renderDrafts)
+    .withFailureHandler(onError)
+    .getDraftsAwaitingApproval();
+}
+
+function renderDrafts(drafts) {
+  drafts = drafts || [];
+  var card = document.getElementById('draftsCard');
+  var listEl = document.getElementById('draftsList');
+  var headerEl = document.getElementById('draftsCardHeader');
+
+  if (drafts.length === 0) { card.style.display = 'none'; return; }
+
+  card.style.display = 'block';
+  headerEl.textContent = currentUserIsApprover
+    ? 'Drafts awaiting your approval (' + drafts.length + ')'
+    : 'Your drafts pending approval (' + drafts.length + ')';
+
+  var html = '<table class="quotes-table"><thead><tr>' +
+    '<th>Date</th><th>Quote #</th><th>Customer</th><th>Drafted by</th>' +
+    '<th class="amount">Quoted</th><th class="actions"></th>' +
+    '</tr></thead><tbody>';
+  drafts.forEach(function(d) {
+    var actionLabel = currentUserIsApprover ? 'Review →' : 'Edit →';
+    html += '<tr>' +
+      '<td>' + escHtml(d.date) + '</td>' +
+      '<td class="qnum">' + escHtml(d.quoteNumber) + '</td>' +
+      '<td>' + escHtml(d.customer) + '</td>' +
+      '<td style="color:#666; font-size:11px;">' + escHtml(d.drafter) + '</td>' +
+      '<td class="amount">RM ' + formatMyr(d.quotedPrice) + '</td>' +
+      '<td class="actions">' +
+        (d.driveUrl ? '<a href="' + escAttr(d.driveUrl) + '" target="_blank">PDF</a> · ' : '') +
+        '<a href="#" onclick="openDraftReview(' + d.rowIndex + ', \'' + escAttr(d.quoteNumber) + '\', \'' + escAttr(d.driveUrl) + '\'); return false;">' + actionLabel + '</a>' +
+      '</td>' +
+    '</tr>';
+  });
+  html += '</tbody></table>';
+  listEl.innerHTML = html;
+}
+
+function openDraftReview(rowIndex, quoteNumber, driveUrl) {
+  if (!currentUserIsApprover) {
+    // Non-approver clicking "Edit" on their own draft → go straight to edit view
+    editDraft(rowIndex);
+    return;
+  }
+  hideAllViews();
+  document.getElementById('reviewDraftView').classList.add('active');
+  document.getElementById('reviewDraftSubtitle').textContent = quoteNumber;
+  document.getElementById('reviewDraftFrame').src = driveUrlToPreview(driveUrl);
+  document.getElementById('reviewDraftStatus').textContent = '';
+  window._reviewingDraftRow = rowIndex;
+  window._reviewingDraftQuoteNumber = quoteNumber;
+}
+
+function driveUrlToPreview(url) {
+  // Drive's /view URL embeds awkwardly. /preview is the embed-friendly form.
+  if (!url) return 'about:blank';
+  var m = url.match(/\/file\/d\/([^/]+)/);
+  if (m) return 'https://drive.google.com/file/d/' + m[1] + '/preview';
+  return url;
+}
+
+function approveFromReview() {
+  if (!window._reviewingDraftRow) return;
+  if (!confirm('Approve and send ' + window._reviewingDraftQuoteNumber + ' to the customer?')) return;
+  document.getElementById('reviewDraftStatus').innerHTML = '<span class="spinner"></span> Sending…';
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) {
+        document.getElementById('reviewDraftStatus').textContent = 'Error: ' + (result.error || '');
+        document.getElementById('reviewDraftStatus').className = 'error';
+        return;
+      }
+      window._reviewingDraftRow = null;
+      window._reviewingDraftQuoteNumber = null;
+      showLanding();
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('reviewDraftStatus').textContent = 'Error: ' + err.message;
+      document.getElementById('reviewDraftStatus').className = 'error';
+    })
+    .approveAndSend(window._reviewingDraftRow);
+}
+
+function editDraftFromReview() {
+  if (!window._reviewingDraftRow) return;
+  editDraft(window._reviewingDraftRow);
+}
+
+function editDraft(rowIndex) {
+  document.getElementById('reviewDraftStatus') && (document.getElementById('reviewDraftStatus').textContent = '');
+  google.script.run
+    .withSuccessHandler(onDraftLoadedForEdit)
+    .withFailureHandler(onError)
+    .getDraftForEdit(rowIndex);
+}
+
+function onDraftLoadedForEdit(result) {
+  if (!result.success) { alert(result.error || 'Failed to load draft.'); return; }
+  hideAllViews();
+  document.getElementById('newQuoteView').classList.add('active');
+  if (!newQuoteInitialized) {
+    initNewQuoteView();
+    newQuoteInitialized = true;
+    var checkReady = setInterval(function() {
+      if (allCatalogueItems.length > 0 && locations.length > 0) {
+        clearInterval(checkReady);
+        prefillFormForDraftEdit(result);
+      }
+    }, 100);
+  } else {
+    prefillFormForDraftEdit(result);
+  }
+}
+
+function prefillFormForDraftEdit(result) {
+  resetFormControls();
+  window._editingDraftRow = result.draftRow;
+  // Reuse the revise-prefill machinery for the payload, but skip parent-quote linkage
+  var payload = result.payload;
+  document.getElementById('reviseBanner').style.display = 'block';
+  document.getElementById('reviseBannerOriginal').textContent =
+    'draft ' + result.quoteNumber + (result.drafter ? ' (drafted by ' + result.drafter + ')' : '');
+
+  if (payload.locationCode) document.getElementById('locationSelect').value = payload.locationCode;
+  document.getElementById('quoteNumberDisplay').value = result.quoteNumber;
+  document.getElementById('quoteDate').value = payload.quoteDate || document.getElementById('quoteDate').value;
+  document.getElementById('customerName').value    = payload.customerName    || '';
+  document.getElementById('workDesc').value        = payload.work            || '';
+  document.getElementById('customerAddress').value = payload.customerAddress || '';
+  document.getElementById('customerEmail').value   = payload.customerEmail   || '';
+  document.getElementById('ccEmail').value         = payload.ccEmail         || '';
+
+  addedItems = [];
+  (payload.items || []).forEach(function(it) {
+    addedItems.push({
+      id: nextItemId++,
+      category: it.category || '',
+      chargeType: it.chargeType || '',
+      description: it.description || '',
+      isCustom: false,
+      subRows: it.subRows || [],
+      extraPriceRows: it.extraPriceRows || [],
+      qty: it.qty || 1,
+      unitPrice: it.unitPrice || 0,
+      costPrice: it.catalogueCostPrice || 0,
+      cataloguePrice: it.unitPrice || 0,
+      lineTotal: it.lineTotal || 0
+    });
+  });
+  renderItemsTable();
+  recalcTotals();
+  setStatus('Editing draft ' + result.quoteNumber + ' — adjust as needed and Save Draft or Approve & Send.', 'info');
+}
+
+function rejectFromReview() {
+  if (!window._reviewingDraftRow) return;
+  var note = window.prompt('Why are you rejecting this draft? (note will be sent to the drafter)');
+  if (note === null) return;
+  note = note.trim();
+  if (!note) { alert('Rejection requires a note. Cancelled.'); return; }
+  document.getElementById('reviewDraftStatus').innerHTML = '<span class="spinner"></span> Rejecting…';
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) {
+        document.getElementById('reviewDraftStatus').textContent = 'Error: ' + (result.error || '');
+        document.getElementById('reviewDraftStatus').className = 'error';
+        return;
+      }
+      window._reviewingDraftRow = null;
+      window._reviewingDraftQuoteNumber = null;
+      showLanding();
+    })
+    .withFailureHandler(function(err) {
+      document.getElementById('reviewDraftStatus').textContent = 'Error: ' + err.message;
+      document.getElementById('reviewDraftStatus').className = 'error';
+    })
+    .rejectDraft(window._reviewingDraftRow, note);
 }
 
 function renderRecentQuotes(quotes) {
@@ -530,16 +744,19 @@ function hideAllViews() {
   document.getElementById('landingView').classList.remove('active');
   document.getElementById('reviseView').classList.remove('active');
   document.getElementById('newQuoteView').classList.remove('active');
+  var rd = document.getElementById('reviewDraftView');
+  if (rd) rd.classList.remove('active');
 }
 
 function showLanding() {
   hideAllViews();
   document.getElementById('landingView').classList.add('active');
-  // Refresh recent list when returning to dashboard
+  // Refresh recent list + drafts when returning to dashboard
   google.script.run
     .withSuccessHandler(function(quotes) { renderRecentQuotes(quotes || []); })
     .withFailureHandler(onError)
     .getRecentQuotes();
+  loadDrafts();
 }
 
 function showNewQuote() {
@@ -1108,20 +1325,85 @@ function submitQuotation() {
     .previewQuotation(payload);
 }
 
+var APPROVAL_THRESHOLD_MYR = 10000;
+
 function onPreviewDone(result) {
   document.getElementById('generateBtn').disabled = false;
   if (!result.success) { setStatus('Error: ' + (result.error || 'Unknown error'), 'error'); return; }
   document.getElementById('previewPanel').style.display = 'block';
   document.getElementById('generateBtn').style.display = 'none';
-  setStatus('Review the quotation below, then confirm to send.', 'info');
+  setStatus('Review the quotation below — save as draft for review, or send now.', 'info');
+  applyThresholdRules();
   var blob = new Blob([result.html], { type: 'text/html' });
   var url = URL.createObjectURL(blob);
   document.getElementById('previewFrame').src = url;
 }
 
+// Decide which action buttons are available based on the current user, the
+// quote amount, the revise/edit-draft state, etc. Idempotent — call it any
+// time something that affects the rules has changed.
+function applyThresholdRules() {
+  var sendBtn   = document.getElementById('confirmBtn');
+  var draftBtn  = document.getElementById('saveDraftBtn');
+  var notice    = document.getElementById('thresholdNotice');
+
+  // Compute gross from current addedItems (matches buildPayload's total)
+  var gross = 0;
+  addedItems.forEach(function(item) {
+    gross += item.lineTotal;
+    (item.subRows || []).filter(function(s) { return s.price > 0; }).forEach(function(s) { gross += s.price * item.qty; });
+    (item.extraPriceRows || []).forEach(function(ep) { gross += ep.price * item.qty; });
+  });
+
+  var isEditingDraft = !!window._editingDraftRow;
+  var isRevise       = !!window._parentQuoteNumber;
+  var blockedSend    = !currentUserIsApprover && gross >= APPROVAL_THRESHOLD_MYR;
+  // Revisions always go through the draft flow
+  var forceDraft     = isRevise && !isEditingDraft;
+
+  if (isEditingDraft) {
+    draftBtn.textContent = 'Update Draft';
+    draftBtn.style.display = 'inline-block';
+    if (currentUserIsApprover) {
+      sendBtn.textContent = 'Approve & Send';
+      sendBtn.style.display = 'inline-block';
+      notice.style.display = 'none';
+    } else {
+      // Non-approvers can edit their own drafts but can't send
+      sendBtn.style.display = 'none';
+      notice.textContent = 'Only an approver can send this draft. Update it and wait for review.';
+      notice.style.display = 'block';
+    }
+    return;
+  }
+
+  sendBtn.textContent = 'Send Now';
+  draftBtn.textContent = 'Save as Draft';
+
+  if (forceDraft) {
+    sendBtn.style.display = 'none';
+    draftBtn.style.display = 'inline-block';
+    notice.textContent = 'Revisions always require approval. Save as draft to proceed.';
+    notice.style.display = 'block';
+  } else if (blockedSend) {
+    sendBtn.style.display = 'none';
+    draftBtn.style.display = 'inline-block';
+    notice.textContent = 'Quotes ≥ RM ' + APPROVAL_THRESHOLD_MYR.toLocaleString() + ' require approval. Save as draft to send for review.';
+    notice.style.display = 'block';
+  } else {
+    sendBtn.style.display = 'inline-block';
+    draftBtn.style.display = 'inline-block';
+    notice.style.display = 'none';
+  }
+}
+
 function confirmQuotation() {
+  // If editing a draft, "Send Now" actually means Approve & Send
+  if (window._editingDraftRow) return approveDraftFromPreview();
+
   document.getElementById('confirmBtn').disabled = true;
   document.getElementById('backBtn').disabled = true;
+  if (document.getElementById('saveDraftBtn')) document.getElementById('saveDraftBtn').disabled = true;
   setStatus('<span class="spinner"></span> Saving and sending…', 'info');
   google.script.run
     .withSuccessHandler(onConfirmDone)
@@ -1129,14 +1411,82 @@ function confirmQuotation() {
     .confirmQuotation();
 }
 
+function saveDraft() {
+  document.getElementById('confirmBtn').disabled = true;
+  document.getElementById('backBtn').disabled = true;
+  document.getElementById('saveDraftBtn').disabled = true;
+  setStatus('<span class="spinner"></span> Saving draft…', 'info');
+
+  // If editing an existing draft → update in place
+  if (window._editingDraftRow) {
+    google.script.run
+      .withSuccessHandler(onDraftSaved)
+      .withFailureHandler(onGenerateError)
+      .updateDraftFromPending(window._editingDraftRow);
+  } else {
+    google.script.run
+      .withSuccessHandler(onDraftSaved)
+      .withFailureHandler(onGenerateError)
+      .saveDraftFromPending();
+  }
+}
+
+function onDraftSaved(result) {
+  document.getElementById('confirmBtn').disabled = false;
+  document.getElementById('backBtn').disabled = false;
+  document.getElementById('saveDraftBtn').disabled = false;
+  if (!result.success) { setStatus('Error: ' + (result.error || 'Unknown error'), 'error'); return; }
+  var msg = window._editingDraftRow
+    ? '✓ Draft updated. <a href="' + result.pdfUrl + '" target="_blank">Open PDF</a>'
+    : '✓ Draft saved. <a href="' + result.pdfUrl + '" target="_blank">Open PDF</a>';
+  setStatus(msg + ' · <a href="#" onclick="goToDashboard(); return false;">Back to dashboard</a>', 'success');
+  document.getElementById('confirmBtn').style.display = 'none';
+  document.getElementById('saveDraftBtn').style.display = 'none';
+  document.getElementById('backBtn').textContent = '← Back to dashboard';
+  document.getElementById('backBtn').onclick = goToDashboard;
+}
+
+function goToDashboard() {
+  resetForm();
+  showLanding();
+}
+
+function approveDraftFromPreview() {
+  if (!window._editingDraftRow) return;
+  document.getElementById('confirmBtn').disabled = true;
+  document.getElementById('saveDraftBtn').disabled = true;
+  document.getElementById('backBtn').disabled = true;
+  setStatus('<span class="spinner"></span> Updating draft and sending…', 'info');
+
+  // Two-step: persist any edits to the draft first, then approve & send
+  google.script.run
+    .withSuccessHandler(function(updateResult) {
+      if (!updateResult.success) {
+        setStatus('Error updating draft: ' + (updateResult.error || ''), 'error');
+        document.getElementById('confirmBtn').disabled = false;
+        document.getElementById('saveDraftBtn').disabled = false;
+        document.getElementById('backBtn').disabled = false;
+        return;
+      }
+      google.script.run
+        .withSuccessHandler(onConfirmDone)
+        .withFailureHandler(onGenerateError)
+        .approveAndSend(window._editingDraftRow);
+    })
+    .withFailureHandler(onGenerateError)
+    .updateDraftFromPending(window._editingDraftRow);
+}
+
 function onConfirmDone(result) {
   document.getElementById('confirmBtn').disabled = false;
   document.getElementById('backBtn').disabled = false;
+  if (document.getElementById('saveDraftBtn')) document.getElementById('saveDraftBtn').disabled = false;
   if (result.success) {
-    setStatus('✓ Sent! <a href="' + result.pdfUrl + '" target="_blank">Open PDF</a> · <a href="#" onclick="resetForm(); return false;">Start another</a>', 'success');
+    setStatus('✓ Sent! <a href="' + result.pdfUrl + '" target="_blank">Open PDF</a> · <a href="#" onclick="goToDashboard(); return false;">Back to dashboard</a>', 'success');
     document.getElementById('confirmBtn').style.display = 'none';
+    if (document.getElementById('saveDraftBtn')) document.getElementById('saveDraftBtn').style.display = 'none';
     document.getElementById('backBtn').textContent = '← Back to dashboard';
-    document.getElementById('backBtn').onclick = function() { resetForm(); showLanding(); };
+    document.getElementById('backBtn').onclick = goToDashboard;
   } else {
     setStatus('Error: ' + (result.error || 'Unknown error'), 'error');
   }
@@ -1160,13 +1510,22 @@ function resetFormControls() {
   document.getElementById('backBtn').textContent = '← Back & Edit';
   document.getElementById('backBtn').onclick = backToForm;
   document.getElementById('backBtn').disabled = false;
-  document.getElementById('confirmBtn').style.display = 'block';
+  document.getElementById('confirmBtn').style.display = 'inline-block';
   document.getElementById('confirmBtn').disabled = false;
+  document.getElementById('confirmBtn').textContent = 'Send Now';
+  var draftBtn = document.getElementById('saveDraftBtn');
+  if (draftBtn) {
+    draftBtn.style.display = 'inline-block';
+    draftBtn.disabled = false;
+    draftBtn.textContent = 'Save as Draft';
+  }
+  document.getElementById('thresholdNotice').style.display = 'none';
 }
 
 function resetForm() {
   addedItems = [];
   window._parentQuoteNumber = null;
+  window._editingDraftRow = null;
   window._autofilled = { customerEmail: false, ccEmail: false, customerAddress: false };
   document.getElementById('reviseBanner').style.display = 'none';
   ['customerName', 'workDesc', 'customerAddress', 'customerEmail', 'ccEmail', 'catalogueSearch'].forEach(function(id) {

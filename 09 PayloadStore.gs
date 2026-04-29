@@ -33,6 +33,28 @@ function savePayload(quoteNumber, parentQuoteNumber, payload) {
   CacheService.getScriptCache().remove('customerHistory');
 }
 
+// Upsert: replace the existing row for this quote number, or append if absent.
+// Used by saveDraft + draft-edit to keep one row per quote-in-progress.
+function upsertPayload(quoteNumber, parentQuoteNumber, payload) {
+  const sheet = getPayloadsSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow > 1) {
+    const keys = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+    for (let i = keys.length - 1; i >= 0; i--) {
+      if ((keys[i][0] || '').toString().trim() === quoteNumber) {
+        const row = i + 2;
+        sheet.getRange(row, 2).setValue(parentQuoteNumber || '');
+        sheet.getRange(row, 3).setValue(new Date());
+        sheet.getRange(row, 4).setValue(JSON.stringify(payload));
+        CacheService.getScriptCache().remove('customerHistory');
+        return;
+      }
+    }
+  }
+  // No existing row — append
+  savePayload(quoteNumber, parentQuoteNumber, payload);
+}
+
 function loadPayload(quoteNumber) {
   const sheet = getPayloadsSheet_();
   const lastRow = sheet.getLastRow();

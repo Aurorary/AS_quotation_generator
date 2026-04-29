@@ -200,6 +200,56 @@ function sendQuotationEmail(email, customerName, quoteNumber, pdfBlob, driveUrl,
   GmailApp.sendEmail(email, subject, body, opts);
 }
 
+// ── Allowed status values (column K dropdown) ────────────────
+const QUOTE_STATUSES = ['Draft', 'Pending Customer', 'Pending Bill', 'Billed', 'Cancelled'];
+
+// ── Update a quote's status in column K ──────────────────────
+// Open to anyone in the domain — flipping status is low-stakes operational
+// work. Approval-gated actions (sending drafts ≥RM 10K) live elsewhere.
+// Note: status "Billed" must go through markBilled() instead, which also
+// writes the invoice number to column O atomically.
+function setQuoteStatus(rowIndex, newStatus) {
+  if (QUOTE_STATUSES.indexOf(newStatus) === -1) {
+    return { success: false, error: 'Invalid status: ' + newStatus };
+  }
+  if (newStatus === 'Billed') {
+    return { success: false, error: 'Use markBilled to set Billed status (requires invoice number)' };
+  }
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tabName = getProp('TRACKER_SHEET_TAB') || 'NEW COMBINED';
+  const sheet = ss.getSheetByName(tabName);
+  const lastRow = sheet.getLastRow();
+  if (rowIndex < 2 || rowIndex > lastRow) {
+    return { success: false, error: 'Row ' + rowIndex + ' is out of range' };
+  }
+  sheet.getRange(rowIndex, 11).setValue(newStatus);
+  return { success: true };
+}
+
+// ── Mark a quote Billed: writes invoice number (col O) + status (col K) ──
+const INVOICE_NUMBER_PATTERN = /^C-\d+-\d+$/;
+
+function markBilled(rowIndex, invoiceNumber) {
+  const inv = (invoiceNumber || '').trim();
+  if (!inv) {
+    return { success: false, error: 'Invoice number is required to mark Billed.' };
+  }
+  if (!INVOICE_NUMBER_PATTERN.test(inv)) {
+    return { success: false, error: 'Invoice number must match C-{digits}-{digits} (e.g. C-108-0045871).' };
+  }
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tabName = getProp('TRACKER_SHEET_TAB') || 'NEW COMBINED';
+  const sheet = ss.getSheetByName(tabName);
+  const lastRow = sheet.getLastRow();
+  if (rowIndex < 2 || rowIndex > lastRow) {
+    return { success: false, error: 'Row ' + rowIndex + ' is out of range' };
+  }
+  // Write both cells; column M=Drafted by, N=Rejection note, O=Invoice number
+  sheet.getRange(rowIndex, 15).setValue(inv);    // O = 15
+  sheet.getRange(rowIndex, 11).setValue('Billed'); // K = 11
+  return { success: true };
+}
+
 // ── Landing page data: recent quotes (last 30 days) ─────────
 function getRecentQuotes() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -208,7 +258,8 @@ function getRecentQuotes() {
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
 
-  const values = sheet.getRange(2, 1, lastRow - 1, 11).getValues();
+  // Read through column O (15) so we can pick up invoice numbers
+  const values = sheet.getRange(2, 1, lastRow - 1, 15).getValues();
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - 30);
 
@@ -228,7 +279,8 @@ function getRecentQuotes() {
       work: r[3] ? r[3].toString().trim() : '',
       driveUrl: r[5] ? r[5].toString().trim() : '',
       quotedPrice: parseFloat(r[6]) || 0,
-      status: r[10] ? r[10].toString().trim() : ''
+      status: r[10] ? r[10].toString().trim() : '',
+      invoiceNumber: r[14] ? r[14].toString().trim() : ''
     });
   }
   return rows.reverse();

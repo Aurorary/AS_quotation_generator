@@ -73,9 +73,33 @@
   .status-draft     { background: #eee;     color: #555; }
   .status-pending-c { background: #ffe4cc; color: #b25c00; }
   .status-pending-b { background: #fff3c4; color: #8a6800; }
-  .status-yes       { background: #d4f0d4; color: #1f6b1f; }
+  .status-billed    { background: #d4f0d4; color: #1f6b1f; }
   .status-cancelled { background: #f8d7d7; color: #8b1f1f; }
   .status-unknown   { background: #eee;     color: #888; }
+
+  /* Row menu (⋯) */
+  .row-menu { position: relative; display: inline-block; }
+  .row-menu-btn {
+    background: none; border: 1px solid transparent; color: #666;
+    padding: 2px 6px; cursor: pointer; font-size: 14px; border-radius: 3px;
+    line-height: 1;
+  }
+  .row-menu-btn:hover { background: #f0f0f0; border-color: #ddd; color: #333; }
+  .row-menu-popup {
+    position: absolute; top: 100%; right: 0; z-index: 100;
+    background: #fff; border: 1px solid #ccc; border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12); min-width: 170px;
+    padding: 4px 0; margin-top: 2px;
+    text-align: left; font-weight: normal;
+  }
+  .row-menu-popup a {
+    display: block; padding: 6px 12px; color: #1a1a1a; text-decoration: none;
+    font-size: 12px; cursor: pointer; white-space: nowrap;
+  }
+  .row-menu-popup a:hover { background: #f5f7fa; color: #1a1a1a; text-decoration: none; }
+  .row-menu-popup .danger { color: #b22; }
+  .row-menu-popup .danger:hover { background: #fdf0f0; color: #b22; }
+  .row-menu-popup hr { border: none; border-top: 1px solid #eee; margin: 4px 0; }
 
   .empty {
     padding: 24px; text-align: center; color: #aaa; font-size: 12px;
@@ -396,20 +420,98 @@ function renderRecentQuotes(quotes) {
     '<th class="amount">Quoted</th><th>Status</th><th class="actions"></th>' +
     '</tr></thead><tbody>';
   quotes.forEach(function(q) {
-    html += '<tr>' +
+    var statusCell = statusPill(q.status);
+    if (q.invoiceNumber) {
+      statusCell += '<div style="font-size:10px; color:#888; margin-top:2px; font-family:\'Courier New\',monospace;">' + escHtml(q.invoiceNumber) + '</div>';
+    }
+    html += '<tr data-row="' + q.rowIndex + '">' +
       '<td>' + escHtml(q.date) + '</td>' +
       '<td class="qnum">' + escHtml(q.quoteNumber) + '</td>' +
       '<td>' + escHtml(q.customer) + '</td>' +
       '<td style="color:#666;">' + escHtml((q.work || '').slice(0, 40)) + '</td>' +
       '<td class="amount">RM ' + formatMyr(q.quotedPrice) + '</td>' +
-      '<td>' + statusPill(q.status) + '</td>' +
-      '<td class="actions">' +
-        (q.driveUrl ? '<a href="' + escAttr(q.driveUrl) + '" target="_blank">PDF</a>' : '') +
-      '</td>' +
+      '<td>' + statusCell + '</td>' +
+      '<td class="actions">' + rowActions(q) + '</td>' +
     '</tr>';
   });
   html += '</tbody></table>';
   listEl.innerHTML = html;
+}
+
+function rowActions(q) {
+  // PDF link kept as a quick-access affordance; ⋯ menu handles the rest.
+  var pdfLink = q.driveUrl ? '<a href="' + escAttr(q.driveUrl) + '" target="_blank">PDF</a>' : '';
+  var menuId = 'menu_' + q.rowIndex;
+  var items = [];
+  if (q.status !== 'Pending Customer') items.push({ s: 'Pending Customer', label: 'Mark Pending Customer' });
+  if (q.status !== 'Pending Bill')     items.push({ s: 'Pending Bill',     label: 'Mark Pending Bill' });
+  if (q.status !== 'Billed')           items.push({ s: 'Billed',           label: 'Mark Billed' });
+  if (q.status !== 'Cancelled')        items.push({ s: 'Cancelled',        label: 'Mark Cancelled', danger: true });
+
+  var menuHtml = items.map(function(it) {
+    return '<a' + (it.danger ? ' class="danger"' : '') +
+           ' onclick="markStatus(' + q.rowIndex + ', \'' + escAttr(it.s) + '\'); return false;">' +
+           escHtml(it.label) + '</a>';
+  }).join('');
+
+  return pdfLink +
+    ' <span class="row-menu">' +
+      '<button class="row-menu-btn" onclick="toggleRowMenu(\'' + menuId + '\', event)" title="More actions">⋯</button>' +
+      '<div class="row-menu-popup" id="' + menuId + '" style="display:none;">' + menuHtml + '</div>' +
+    '</span>';
+}
+
+function toggleRowMenu(id, evt) {
+  if (evt) evt.stopPropagation();
+  // Close any other open menu first
+  document.querySelectorAll('.row-menu-popup').forEach(function(p) {
+    if (p.id !== id) p.style.display = 'none';
+  });
+  var menu = document.getElementById(id);
+  if (menu) menu.style.display = (menu.style.display === 'block') ? 'none' : 'block';
+}
+
+// Close any open menu on outside click
+document.addEventListener('click', function() {
+  document.querySelectorAll('.row-menu-popup').forEach(function(p) {
+    p.style.display = 'none';
+  });
+});
+
+function markStatus(rowIndex, newStatus) {
+  if (newStatus === 'Billed') return promptInvoiceAndMarkBilled(rowIndex);
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) { alert(result.error || 'Failed to update status.'); return; }
+      refreshRecentQuotes();
+    })
+    .withFailureHandler(onError)
+    .setQuoteStatus(rowIndex, newStatus);
+}
+
+function promptInvoiceAndMarkBilled(rowIndex) {
+  var inv = window.prompt('Enter invoice number to mark Billed (format: C-{digits}-{digits}, e.g. C-108-0045871):');
+  if (inv === null) return; // cancelled
+  inv = inv.trim();
+  if (!inv) return;         // empty = treat as cancel
+  if (!/^C-\d+-\d+$/.test(inv)) {
+    alert('Invoice number must match C-{digits}-{digits} (e.g. C-108-0045871). No change made.');
+    return;
+  }
+  google.script.run
+    .withSuccessHandler(function(result) {
+      if (!result.success) { alert(result.error || 'Failed to mark Billed.'); return; }
+      refreshRecentQuotes();
+    })
+    .withFailureHandler(onError)
+    .markBilled(rowIndex, inv);
+}
+
+function refreshRecentQuotes() {
+  google.script.run
+    .withSuccessHandler(function(quotes) { renderRecentQuotes(quotes || []); })
+    .withFailureHandler(onError)
+    .getRecentQuotes();
 }
 
 function statusPill(status) {
@@ -418,7 +520,7 @@ function statusPill(status) {
   if (s === 'Draft') cls = 'status-draft';
   else if (s === 'Pending Customer') cls = 'status-pending-c';
   else if (s === 'Pending Bill') cls = 'status-pending-b';
-  else if (s === 'Yes') cls = 'status-yes';
+  else if (s === 'Billed') cls = 'status-billed';
   else if (s === 'Cancelled') cls = 'status-cancelled';
   return '<span class="status-pill ' + cls + '">' + escHtml(s || '—') + '</span>';
 }

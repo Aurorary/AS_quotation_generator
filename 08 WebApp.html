@@ -78,18 +78,21 @@
   .status-unknown   { background: #eee;     color: #888; }
 
   /* Row menu (⋯) */
-  .row-menu { position: relative; display: inline-block; }
+  .row-menu { display: inline-block; }
   .row-menu-btn {
     background: none; border: 1px solid transparent; color: #666;
     padding: 2px 6px; cursor: pointer; font-size: 14px; border-radius: 3px;
     line-height: 1;
   }
   .row-menu-btn:hover { background: #f0f0f0; border-color: #ddd; color: #333; }
+  /* position:fixed so the popup escapes any ancestor with overflow:hidden
+     (e.g. .card). Coords are set in toggleRowMenu based on the button's
+     bounding rect. */
   .row-menu-popup {
-    position: absolute; top: 100%; right: 0; z-index: 100;
+    position: fixed; z-index: 1000;
     background: #fff; border: 1px solid #ccc; border-radius: 4px;
     box-shadow: 0 2px 8px rgba(0,0,0,0.12); min-width: 170px;
-    padding: 4px 0; margin-top: 2px;
+    padding: 4px 0;
     text-align: left; font-weight: normal;
   }
   .row-menu-popup a {
@@ -257,7 +260,7 @@
 
     <div class="card">
       <div class="card-header">
-        Recent quotes <span class="count" id="recentCount">(last 30 days)</span>
+        Open quotes <span class="count" id="recentCount">(loading…)</span>
       </div>
       <div id="recentList">
         <div class="empty">Loading…</div>
@@ -586,7 +589,7 @@ function prefillFormForDraftEdit(result) {
       category: it.category || '',
       chargeType: it.chargeType || '',
       description: it.description || '',
-      isCustom: false,
+      isCustom: !!it.isCustom,
       subRows: it.subRows || [],
       extraPriceRows: it.extraPriceRows || [],
       qty: it.qty || 1,
@@ -628,13 +631,14 @@ function rejectFromReview() {
 
 function renderRecentQuotes(quotes) {
   var listEl = document.getElementById('recentList');
-  document.getElementById('recentCount').textContent = '(' + quotes.length + ' in last 30 days)';
+  document.getElementById('recentCount').textContent =
+    quotes.length === 0 ? '(none)' : '(' + quotes.length + ' open)';
   if (quotes.length === 0) {
-    listEl.innerHTML = '<div class="empty">No quotes in the last 30 days.</div>';
+    listEl.innerHTML = '<div class="empty">No open quotes — every quote is Billed or Cancelled.</div>';
     return;
   }
   var html = '<table class="quotes-table"><thead><tr>' +
-    '<th>Date</th><th>Quote #</th><th>Customer</th><th>Work</th>' +
+    '<th>Date</th><th>Age</th><th>Quote #</th><th>Customer</th><th>Work</th>' +
     '<th class="amount">Quoted</th><th>Status</th><th class="actions"></th>' +
     '</tr></thead><tbody>';
   quotes.forEach(function(q) {
@@ -644,6 +648,7 @@ function renderRecentQuotes(quotes) {
     }
     html += '<tr data-row="' + q.rowIndex + '">' +
       '<td>' + escHtml(q.date) + '</td>' +
+      '<td>' + ageBadge(q.ageDays) + '</td>' +
       '<td class="qnum">' + escHtml(q.quoteNumber) + '</td>' +
       '<td>' + escHtml(q.customer) + '</td>' +
       '<td style="color:#666;">' + escHtml((q.work || '').slice(0, 40)) + '</td>' +
@@ -654,6 +659,22 @@ function renderRecentQuotes(quotes) {
   });
   html += '</tbody></table>';
   listEl.innerHTML = html;
+}
+
+// Rounded buckets for age display. Colour intensifies as age grows so stale
+// rows visually pop without needing a separate "stale" section.
+function ageBadge(days) {
+  if (days === undefined || days === null || isNaN(days)) return '';
+  var label;
+  if (days <= 0)        label = 'today';
+  else if (days < 7)    label = days + 'd';
+  else if (days < 30)   label = Math.round(days / 7) + 'w';
+  else if (days < 365)  label = Math.round(days / 30) + 'mo';
+  else                  label = Math.round(days / 365) + 'y';
+  var color = '#888';                       // fresh, neutral grey
+  if (days >= 7  && days < 30) color = '#b25c00'; // 1w+ amber
+  if (days >= 30)              color = '#b22';    // 1mo+ red
+  return '<span style="font-size:11px; color:' + color + '; font-weight:bold;">' + label + '</span>';
 }
 
 function rowActions(q) {
@@ -695,7 +716,40 @@ function toggleRowMenu(id, evt) {
     if (p.id !== id) p.style.display = 'none';
   });
   var menu = document.getElementById(id);
-  if (menu) menu.style.display = (menu.style.display === 'block') ? 'none' : 'block';
+  if (!menu) return;
+  if (menu.style.display === 'block') { menu.style.display = 'none'; return; }
+
+  // Anchor under the trigger button. Using viewport coords (position:fixed)
+  // so the popup escapes any clipping from .card { overflow:hidden }.
+  var btn = (evt && evt.currentTarget) || menu.previousElementSibling;
+  if (btn && btn.getBoundingClientRect) {
+    var rect = btn.getBoundingClientRect();
+    menu.style.display = 'block'; // need it shown to measure width/height
+    var menuWidth  = menu.offsetWidth  || 170;
+    var menuHeight = menu.offsetHeight || 180;
+
+    // Vertical: prefer below, flip above when it would overflow the viewport
+    var spaceBelow = window.innerHeight - rect.bottom;
+    var spaceAbove = rect.top;
+    var top;
+    if (spaceBelow >= menuHeight + 4 || spaceBelow >= spaceAbove) {
+      top = rect.bottom + 4;
+    } else {
+      top = rect.top - menuHeight - 4;
+    }
+    if (top < 4) top = 4;
+
+    // Horizontal: anchor right edge of popup to right edge of button, clamp
+    var left = rect.right - menuWidth;
+    if (left < 4) left = 4;
+    var maxLeft = window.innerWidth - menuWidth - 4;
+    if (left > maxLeft) left = maxLeft;
+
+    menu.style.top  = top + 'px';
+    menu.style.left = left + 'px';
+  } else {
+    menu.style.display = 'block';
+  }
 }
 
 // Close any open menu on outside click
@@ -906,7 +960,7 @@ function prefillFormFromPayload(payload, parentQuoteNumber, newQuoteNumber) {
       category: it.category || '',
       chargeType: it.chargeType || '',
       description: it.description || '',
-      isCustom: false,
+      isCustom: !!it.isCustom,
       subRows: it.subRows || [],
       extraPriceRows: it.extraPriceRows || [],
       qty: it.qty || 1,
@@ -1336,7 +1390,8 @@ function buildPayload() {
         qty: item.qty,
         unitPrice: item.unitPrice,
         catalogueCostPrice: item.costPrice,
-        lineTotal: item.lineTotal
+        lineTotal: item.lineTotal,
+        isCustom: !!item.isCustom
       };
     }),
     quotedPrice: round2(quotedSum),
@@ -1487,25 +1542,15 @@ function approveDraftFromPreview() {
   document.getElementById('confirmBtn').disabled = true;
   document.getElementById('saveDraftBtn').disabled = true;
   document.getElementById('backBtn').disabled = true;
-  setStatus('<span class="spinner"></span> Updating draft and sending…', 'info');
+  setStatus('<span class="spinner"></span> Approving and sending…', 'info');
 
-  // Two-step: persist any edits to the draft first, then approve & send
+  // Single-step: backend uses pendingPayload directly, sends, flips status,
+  // trashes draft PDF. Avoids the redundant "update then approve" round-trip
+  // that doubled Drive calls and stalled the UI.
   google.script.run
-    .withSuccessHandler(function(updateResult) {
-      if (!updateResult.success) {
-        setStatus('Error updating draft: ' + (updateResult.error || ''), 'error');
-        document.getElementById('confirmBtn').disabled = false;
-        document.getElementById('saveDraftBtn').disabled = false;
-        document.getElementById('backBtn').disabled = false;
-        return;
-      }
-      google.script.run
-        .withSuccessHandler(onConfirmDone)
-        .withFailureHandler(onGenerateError)
-        .approveAndSend(window._editingDraftRow);
-    })
+    .withSuccessHandler(onConfirmDone)
     .withFailureHandler(onGenerateError)
-    .updateDraftFromPending(window._editingDraftRow);
+    .approveAndSendFromPending(window._editingDraftRow);
 }
 
 function onConfirmDone(result) {

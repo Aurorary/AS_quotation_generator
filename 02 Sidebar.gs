@@ -163,6 +163,14 @@ function confirmQuotation() {
       };
     }
 
+    // Fail fast on bad email — no point rendering PDFs we can't deliver
+    if (!isValidEmail(payload.customerEmail)) {
+      return { success: false, error: 'Customer email is invalid: "' + (payload.customerEmail || '') + '"' };
+    }
+    if (!isValidCcList(payload.ccEmail)) {
+      return { success: false, error: 'CC email is invalid: "' + (payload.ccEmail || '') + '"' };
+    }
+
     cache.remove('pendingPayload');
 
     const locations = getLocations();
@@ -188,6 +196,7 @@ function confirmQuotation() {
 
     // Persist payload for future revisions
     savePayload(payload.quoteNumber, payload.parentQuoteNumber || '', payload);
+    logCustomItems(payload, 'Pending Customer');
 
     return { success: true, pdfUrl: driveUrl };
 
@@ -213,6 +222,27 @@ function sendQuotationEmail(email, customerName, quoteNumber, pdfBlob, driveUrl,
   GmailApp.sendEmail(email, subject, body, opts);
 }
 
+// ── Email format guard ────────────────────────────────────────
+// Lightweight RFC-5321-ish check — catches the common mistakes (missing @,
+// stray spaces, "test" with no domain). Real validation is GmailApp's job;
+// this just fails fast before we render PDFs and write tracker rows.
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isValidEmail(s) {
+  return EMAIL_PATTERN.test((s || '').toString().trim());
+}
+
+// Validates a comma- or semicolon-separated CC field; empty string is OK.
+function isValidCcList(s) {
+  const trimmed = (s || '').toString().trim();
+  if (!trimmed) return true;
+  const parts = trimmed.split(/[,;]/).map(function(p) { return p.trim(); }).filter(Boolean);
+  for (let i = 0; i < parts.length; i++) {
+    if (!EMAIL_PATTERN.test(parts[i])) return false;
+  }
+  return true;
+}
+
 // ── Allowed status values (column K dropdown) ────────────────
 const QUOTE_STATUSES = ['Draft', 'Pending Customer', 'Pending Bill', 'Billed', 'Cancelled'];
 
@@ -236,6 +266,15 @@ function setQuoteStatus(rowIndex, newStatus) {
     return { success: false, error: 'Row ' + rowIndex + ' is out of range' };
   }
   sheet.getRange(rowIndex, 11).setValue(newStatus);
+
+  // Snapshot custom-item prices on meaningful transitions
+  if (newStatus === 'Pending Bill') {
+    const quoteNumber = sheet.getRange(rowIndex, 2).getValue();
+    if (quoteNumber) {
+      const payload = loadPayload(quoteNumber.toString().trim());
+      if (payload) logCustomItems(payload, 'Pending Bill');
+    }
+  }
   return { success: true };
 }
 
@@ -260,10 +299,20 @@ function markBilled(rowIndex, invoiceNumber) {
   // Write both cells; column M=Invoice number, N=Drafted by, O=Rejection note
   sheet.getRange(rowIndex, 13).setValue(inv);    // M = 13
   sheet.getRange(rowIndex, 11).setValue('Billed'); // K = 11
+
+  // Snapshot custom-item prices at billing
+  const quoteNumber = sheet.getRange(rowIndex, 2).getValue();
+  if (quoteNumber) {
+    const payload = loadPayload(quoteNumber.toString().trim());
+    if (payload) logCustomItems(payload, 'Billed');
+  }
   return { success: true };
 }
 
-// ── Landing page data: recent quotes (last 30 days) ─────────
+// ── Landing page data: open quotes (action-needed worklist) ──
+// No date cutoff — a 4-month-old Pending Bill still needs billing.
+// Filter out done/dead statuses (Billed, Cancelled). Sort oldest first
+// within unbilled so the most-stale floats to the top.
 function getRecentQuotes() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const tabName = getProp('TRACKER_SHEET_TAB') || 'NEW COMBINED';
@@ -271,27 +320,24 @@ function getRecentQuotes() {
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
 
-  // Read through column O (15) so we can pick up invoice numbers
   const values = sheet.getRange(2, 1, lastRow - 1, 15).getValues();
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - 30);
-
-  // Dashboard is a worklist — hide quotes that no longer drive action
   const HIDDEN_STATUSES = { 'Billed': true, 'Cancelled': true };
+  const now = new Date();
 
   const rows = [];
   for (let i = 0; i < values.length; i++) {
     const r = values[i];
     const dateVal = r[0];
     if (!dateVal || !(dateVal instanceof Date)) continue;
-    if (dateVal < cutoff) continue;
     const quoteNumber = r[1] ? r[1].toString().trim() : '';
     if (!quoteNumber) continue;
     const status = r[10] ? r[10].toString().trim() : '';
     if (HIDDEN_STATUSES[status]) continue;
+    const ageDays = Math.floor((now - dateVal) / (1000 * 60 * 60 * 24));
     rows.push({
       rowIndex: i + 2,
       date: Utilities.formatDate(dateVal, 'Asia/Kuala_Lumpur', 'dd-MMM-yyyy'),
+      ageDays: ageDays,
       quoteNumber: quoteNumber,
       customer: r[2] ? r[2].toString().trim() : '',
       work: r[3] ? r[3].toString().trim() : '',
@@ -301,7 +347,9 @@ function getRecentQuotes() {
       invoiceNumber: r[12] ? r[12].toString().trim() : ''
     });
   }
-  return rows.reverse();
+  // Oldest first — most overdue at the top
+  rows.sort(function(a, b) { return b.ageDays - a.ageDays; });
+  return rows;
 }
 
 // ── Initial bundle for web app landing page ─────────────────

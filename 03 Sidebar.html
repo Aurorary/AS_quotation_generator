@@ -525,7 +525,8 @@ function buildPayload() {
         qty: item.qty,
         unitPrice: item.unitPrice,
         catalogueCostPrice: item.costPrice,
-        lineTotal: item.lineTotal
+        lineTotal: item.lineTotal,
+        isCustom: !!item.isCustom
       };
     }),
     quotedPrice: round2(quotedSum),

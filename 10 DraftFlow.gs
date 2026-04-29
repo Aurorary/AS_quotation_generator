@@ -76,6 +76,13 @@ function approveAndSend(draftRow) {
     const payload = loadPayload(quoteNumber);
     if (!payload) throw new Error('No saved payload found for ' + quoteNumber);
 
+    if (!isValidEmail(payload.customerEmail)) {
+      return { success: false, error: 'Customer email is invalid: "' + (payload.customerEmail || '') + '". Edit the draft to fix.' };
+    }
+    if (!isValidCcList(payload.ccEmail)) {
+      return { success: false, error: 'CC email is invalid: "' + (payload.ccEmail || '') + '". Edit the draft to fix.' };
+    }
+
     const locations = getLocations();
     const loc = locations.find(function(l) { return l.code === payload.locationCode; });
     if (!loc) throw new Error('Location not found: ' + payload.locationCode);
@@ -86,10 +93,8 @@ function approveAndSend(draftRow) {
     const saved = savePdf(pdfBlob, payload.quoteNumber, payload.customerName);
     const driveUrl = saved.url;
 
-    if (payload.customerEmail) {
-      const ccList = (payload.ccEmail || '').trim();
-      sendQuotationEmail(payload.customerEmail, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, false, ccList);
-    }
+    const ccList = (payload.ccEmail || '').trim();
+    sendQuotationEmail(payload.customerEmail, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, false, ccList);
 
     // Update the draft row → flip status, replace doc link, leave M (drafter) intact
     sheet.getRange(draftRow, 6).setValue(driveUrl);
@@ -104,11 +109,90 @@ function approveAndSend(draftRow) {
 
     // Update stored payload (drop the draft pdf id, keep the rest)
     upsertPayload(payload.quoteNumber, payload.parentQuoteNumber || '', payload);
+    logCustomItems(payload, 'Pending Customer');
 
     return { success: true, pdfUrl: driveUrl };
 
   } catch (e) {
     console.error('approveAndSend error:', e.message, e.stack);
+    return { success: false, error: e.message };
+  }
+}
+
+// ── Approve & send from preview (single-step, used by Approve & Send button
+//    on the editable draft screen). Bypasses the redundant "update draft then
+//    approve" dance — uses pendingPayload directly, ships it to the customer,
+//    flips the existing draft row to Pending Customer, trashes draft PDF.
+function approveAndSendFromPending(draftRow) {
+  try {
+    const me = Session.getActiveUser().getEmail();
+    if (!isApprover(me)) {
+      return { success: false, error: 'Only approvers can send drafts.' };
+    }
+
+    const cache = CacheService.getScriptCache();
+    const raw = cache.get('pendingPayload');
+    if (!raw) throw new Error('Preview expired. Please generate the preview again.');
+    const payload = JSON.parse(raw);
+
+    if (!isValidEmail(payload.customerEmail)) {
+      return { success: false, error: 'Customer email is invalid: "' + (payload.customerEmail || '') + '"' };
+    }
+    if (!isValidCcList(payload.ccEmail)) {
+      return { success: false, error: 'CC email is invalid: "' + (payload.ccEmail || '') + '"' };
+    }
+    cache.remove('pendingPayload');
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const tabName = getProp('TRACKER_SHEET_TAB') || 'NEW COMBINED';
+    const sheet = ss.getSheetByName(tabName);
+    const lastRow = sheet.getLastRow();
+    if (draftRow < 2 || draftRow > lastRow) throw new Error('Draft row out of range');
+    const rowVals = sheet.getRange(draftRow, 1, 1, 15).getValues()[0];
+    const status = (rowVals[10] || '').toString().trim();
+    if (status !== 'Draft') throw new Error('Row ' + draftRow + ' is not a Draft (status: ' + status + ')');
+
+    const locations = getLocations();
+    const loc = locations.find(function(l) { return l.code === payload.locationCode; });
+    if (!loc) throw new Error('Location not found: ' + payload.locationCode);
+
+    const logoDataUri = getLogoBase64();
+    const htmlString = buildHtmlQuotation(payload, loc, logoDataUri);
+    const pdfBlob = convertHtmlToPdf(htmlString, payload.quoteNumber, payload.customerName);
+    const saved = savePdf(pdfBlob, payload.quoteNumber, payload.customerName);
+    const driveUrl = saved.url;
+
+    const ccList = (payload.ccEmail || '').trim();
+    sendQuotationEmail(payload.customerEmail, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, false, ccList);
+
+    // Trash old draft PDF (we have its id stashed in the prior payload)
+    const prior = loadPayload(payload.quoteNumber);
+    if (prior && prior._draftPdfId) {
+      try { DriveApp.getFileById(prior._draftPdfId).setTrashed(true); }
+      catch (e) { Logger.log('Failed to trash old draft PDF: ' + e.message); }
+    }
+
+    // Update the draft row in place: refresh financials + doc link, flip status
+    const profit = (payload.quotedPrice || 0) - (payload.costPrice || 0);
+    const margin = payload.quotedPrice > 0 ? Math.round((profit / payload.quotedPrice) * 100) + '%' : '0%';
+    sheet.getRange(draftRow, 3).setValue(payload.customerName);
+    sheet.getRange(draftRow, 4).setValue(payload.work || '');
+    sheet.getRange(draftRow, 6).setValue(driveUrl);
+    sheet.getRange(draftRow, 7).setValue(payload.quotedPrice);
+    sheet.getRange(draftRow, 8).setValue(payload.costPrice);
+    sheet.getRange(draftRow, 9).setValue(profit);
+    sheet.getRange(draftRow, 10).setValue(margin);
+    sheet.getRange(draftRow, 11).setValue('Pending Customer');
+
+    // Persist the (no longer draft) payload — drop _draftPdfId
+    delete payload._draftPdfId;
+    upsertPayload(payload.quoteNumber, payload.parentQuoteNumber || '', payload);
+    logCustomItems(payload, 'Pending Customer');
+
+    return { success: true, pdfUrl: driveUrl };
+
+  } catch (e) {
+    console.error('approveAndSendFromPending error:', e.message, e.stack);
     return { success: false, error: e.message };
   }
 }

@@ -2,51 +2,69 @@
 
 ## Overview
 
-Automate the WORQ KL quotation workflow using Google Apps Script (clasp-managed). A modal dialog in the Tracker Google Sheet lets the team pick items from the product catalogue, input customer details, auto-assign a quote number, preview the quotation, then confirm — which generates a PDF saved to Drive, emails it to the customer, and logs everything back to the tracker.
+Automates the WORQ KL quotation workflow on Google Apps Script (clasp-managed). Two parallel UIs share the same backend:
+
+- **In-sheet sidebar** — modal dialog opened from the Tracker spreadsheet menu, original entry point.
+- **Standalone web app** — full-page UI at `script.google.com/.../exec`, intended for daily use including mobile, supports drafts, approvals, customer autocomplete, status lifecycle, and a daily follow-up digest.
+
+Both surfaces produce identical PDFs and write to the same tracker, so a quote can be drafted in either and acted on in either.
 
 ---
 
-## Architecture
+## Quick architecture
 
-| File | Purpose |
-|---|---|
-| **Quotation Tracker** | Management view — one row per quote, script is bound here |
-| **Price Catalogue** | Separate sheet — hardware & services items, cost prices, selling prices |
-| **ADDRESS tab** | Moved into the Tracker sheet — outlet codes, addresses, emails, account numbers |
+```
+┌──────────────────┐    ┌──────────────────┐
+│  In-sheet        │    │  Web app         │
+│  modal sidebar   │    │  (doGet → 08)    │
+│  (03 Sidebar)    │    │                  │
+└────────┬─────────┘    └────────┬─────────┘
+         │                       │
+         └───────────┬───────────┘
+                     ▼
+       ┌─────────────────────────────┐
+       │  Backend (.gs files)        │
+       │  Sidebar.gs, PdfGenerator,  │
+       │  DriveManager, PayloadStore,│
+       │  DraftFlow, Reminders       │
+       └────────────┬────────────────┘
+                    ▼
+       ┌─────────────────────────────┐
+       │  Tracker spreadsheet        │
+       │  ─ NEW COMBINED  (rows)     │
+       │  ─ ADDRESS       (outlets)  │
+       │  ─ _payloads     (hidden)   │
+       └─────────────────────────────┘
+```
 
 ---
 
-## Tech Stack
+## Tech stack
 
-- **Google Apps Script** (bound to Tracker spreadsheet)
-- **clasp** — local development and push
-- **HTML Service** — modal dialog UI (1000×750px, opens inside Google Sheets)
-- **DriveApp** — HTML → PDF conversion + file storage
-- **GmailApp** — send PDF to customer
-- **CacheService** — catalogue cached 10 min, logo cached 6 hours
+- **Google Apps Script** (V8 runtime), bound to the Tracker spreadsheet
+- **clasp** for local development and `clasp push -f` deploys
+- **HTML Service** for both UIs (sidebar modal + web app full page)
+- **DriveApp** for HTML → PDF conversion and folder writes
+- **GmailApp** for customer emails, draft notifications, rejection notes, follow-up digest
+- **CacheService** for catalogue (10 min), logo (6 h), customer-history datalist (5 min), pending preview payload (10 min)
+- **Time-driven trigger** for the daily 9am follow-up digest
 
 ---
 
-## Google Sheets Resources
+## Resources
 
-| Resource | Spreadsheet ID | Tab |
+| Resource | ID | Notes |
 |---|---|---|
-| **Quotation Tracker** | `1DbX1hTx8pHoqzyRZ5AuikECJf2CSC2f__T8k2htZtG0` | `NEW COMBINED` |
-| **Address / Locations** | `1DbX1hTx8pHoqzyRZ5AuikECJf2CSC2f__T8k2htZtG0` | `ADDRESS` (same as tracker) |
-| **Price Catalogue** | `1aqTyUVxbtaDQh9vzuzxsZAZYl5AM1oyli4vbWZZNSps` | `Hardware & Services` |
+| **Quotation Tracker** | `1DbX1hTx8pHoqzyRZ5AuikECJf2CSC2f__T8k2htZtG0` | Spreadsheet — `NEW COMBINED`, `ADDRESS`, hidden `_payloads` |
+| **Price Catalogue** | `1aqTyUVxbtaDQh9vzuzxsZAZYl5AM1oyli4vbWZZNSps` | Separate sheet, `Hardware & Services` tab |
+| **WORQ logo** | `1e1WWzk00qzDRwA82uWOTYZFHjYidP5Q7` | Drive file, embedded as base64 in PDF |
+| **Quotations folder** | `1HgsVQlCmjTOF8jn0l77iRq5_6ViCqHP5` | Drive folder for sent and draft PDFs |
 
-## Other Resources
+All IDs are stored as Script Properties — nothing hardcoded.
 
-| Resource | ID |
-|---|---|
-| **WORQ Logo (Google Drive file)** | `1e1WWzk00qzDRwA82uWOTYZFHjYidP5Q7` |
-| **Quotations Drive Folder** | `1HgsVQlCmjTOF8jn0l77iRq5_6ViCqHP5` |
+### Script Properties
 
-> All IDs are stored as **Script Properties** in Apps Script — nothing hardcoded in code files.
-
----
-
-## Script Properties (set once via `setupScriptProperties`)
+Run `setupScriptProperties()` once from the Apps Script editor.
 
 | Key | Value |
 |---|---|
@@ -57,294 +75,315 @@ Automate the WORQ KL quotation workflow using Google Apps Script (clasp-managed)
 | `QUOTATIONS_FOLDER_ID` | `1HgsVQlCmjTOF8jn0l77iRq5_6ViCqHP5` |
 | `LOGO_FILE_ID` | `1e1WWzk00qzDRwA82uWOTYZFHjYidP5Q7` |
 
-Run `setupScriptProperties()` from the Apps Script editor once to set all values. Re-run anytime to reset.
+### OAuth scopes (manifest)
 
----
-
-## Tracker Sheet Structure (`NEW COMBINED` tab)
-
-| Col | Header | Notes |
-|---|---|---|
-| A | Date | Quote date |
-| B | Quote # | Format: `WORQ/ITG/2026/10` — script auto-generates |
-| C | Customer | Customer company name |
-| D | Work | Description of work |
-| E | Remark | Internal notes |
-| F | Document Link | Drive PDF link — written back by script |
-| G | Quoted Price | Written back by script |
-| H | Cost Price | Written back by script (internal only) |
-| I | Profit | Written back by script (G - H) |
-| J | Margin | Written back by script (I / G as %) |
-| K | Billed? | Dropdown: Yes / Pending Customer / Pending Bill / Cancelled — default: Pending Customer |
-
-Every quotation (new or revision) always appends a **new row**. Revisions are identified by the Rev suffix in the quote number.
-
----
-
-## ADDRESS Tab Structure (in Tracker sheet)
-
-**Columns:** A = Outlet Code | B = Full Address (multi-line) | C = Outlet Email | D = Account No
-
-Fetched **dynamically at runtime** — update the sheet, no code changes needed.
-
-Account number from col D is used in the PDF payment details section per outlet.
-
----
-
-## Price Catalogue Structure (`Hardware & Services` tab)
-
-**Columns:** A=Category | B=Brand | C=Item Description | D=Cost/Unit | E=Cost Price | F=Price | G=Charge Type | H=Remark
-
-**Key rules:**
-- Row with **non-empty Category (A)** = start of new item group (parent row)
-- Row with **blank Category but non-empty Brand (B)** = new item inheriting the last category (e.g. Power Calculation under Rack Space)
-- Rows with **blank Category and blank Brand** = sub-components of the previous item (Cost/Unit in col D)
-- **Cost Price (E)** and **Price (F)** on the parent row = totals used for billing
-- If col F (Price) is set, it is used directly as the selling price
-- If col F is blank/zero, selling price is computed from Cost Price using 30% markup: `roundup(Cost / 0.7, -2)`
-- **Charge Type (G)** on sub-component rows is stored and shown as a label tag in the PDF
-
-**Selling price formula (30% markup default):**
-
-| Markup % | Formula |
-|---|---|
-| **30% (default)** | `roundup(Cost / 0.7, -2)` |
-
-Prices are rounded up to the nearest 100. Items with a fixed catalogue price (col F) are NOT affected by markup.
-
-**Custom Items:**
-- Two special rows at the bottom of the catalogue: `Custom Item — One-off Custom Item` and `Custom Item — Monthly Custom Item`
-- When added, the description field becomes editable inline in the sidebar
-- Unit price defaults to 0 and must be entered manually; cost price is tracked as 0
-
-**After updating the catalogue sheet, always run Clear Cache** from the Quotation Generator menu.
-
----
-
-## Quote Number Logic
-
-**Format:** `WORQ/{LOCATION}/{YEAR}/{RUNNING_NUMBER}`
-
-**Examples:**
 ```
-WORQ/ITG/2026/10
-WORQ/TTDI/2026/11   ← same running sequence, different location
-WORQ/ITG/2026/11 rev1  ← revision
-WORQ/ITG/2026/11 rev2  ← second revision
+spreadsheets, drive, gmail.send, script.container.ui,
+script.scriptapp, userinfo.email
 ```
 
-**Auto-generation:**
-1. Script scans Column B of tracker for all existing quote numbers
-2. Extracts the highest trailing number across ALL locations for the current year
-3. Increments by 1
-4. Prepends selected location code + current year
-
-**Revisions:**
-- User checks "Is this a revision?" in sidebar
-- Quote number becomes editable, pre-filled with existing number + ` rev1`
-- Script auto-detects existing rev suffix and increments: `rev1` → `rev2`
-- Revision does NOT increment the running number counter
-- Revision always appends a new row in the tracker
+`script.scriptapp` is needed by `setupDailyReminder` (it manages triggers). `userinfo.email` is needed by `Session.getActiveUser().getEmail()` for permission gating.
 
 ---
 
-## Project File Structure
+## File structure
 
 ```
 03 QUOTATION GENERATOR/
-├── appsscript.json          ← OAuth scopes, timezone (Asia/Kuala_Lumpur), V8 runtime
-├── .clasp.json              ← clasp config (scriptId, parentId)
-├── .claspignore             ← excludes README, DOCUMENTATION.md, node_modules
-├── Code.gs                  ← onOpen, menu, openSidebar, getLocations, getNextQuoteNumber, clearCache, setupScriptProperties, debugLocations
-├── Sidebar.gs               ← getInitialData, getCatalogueItems, previewQuotation, confirmQuotation, sendEmail, updateTrackerRow
-├── PdfGenerator.gs          ← buildHtmlQuotation, convertHtmlToPdf, getLogoBase64, chargeTag
-├── DriveManager.gs          ← savePdf
-├── sidebar.html             ← Modal dialog UI (vanilla JS, inline CSS)
-└── quotation-template.html  ← PDF layout (HtmlTemplate scriptlets)
+├── appsscript.json          OAuth scopes, V8 runtime, Asia/Kuala_Lumpur tz
+├── .clasp.json              clasp config (scriptId, parentId)
+├── .claspignore             excludes README, this doc, node_modules
+│
+├── 01 Code.gs               doGet, onOpen, openSidebar, getNextQuoteNumber,
+│                            getLocations, setupScriptProperties,
+│                            APPROVER_EMAILS allowlist, isApprover
+├── 02 Sidebar.gs            getInitialData, getCatalogueItems,
+│                            previewQuotation, confirmQuotation,
+│                            sendQuotationEmail, setQuoteStatus, markBilled,
+│                            getRecentQuotes, getWebAppData, getNewQuoteData,
+│                            appendTrackerRow / updateTrackerRow
+├── 03 Sidebar.html          In-sheet modal UI
+├── 04 PdfGenerator.gs       buildHtmlQuotation, convertHtmlToPdf,
+│                            buildPdfFileName, getLogoBase64
+├── 05 DriveManager.gs       savePdf
+├── 06 DOCUMENTATION.md      this file
+├── 07 quotation_template.html  PDF layout (HtmlTemplate)
+├── 08 WebApp.html           Standalone full-page UI (landing, new quote,
+│                            revise picker, review draft)
+├── 09 PayloadStore.gs       Hidden _payloads tab manager: savePayload,
+│                            upsertPayload, loadPayload, getQuoteHistory,
+│                            getCustomerHistory, getCustomerProfile,
+│                            getRevisionData, buildRevisionNumber
+├── 10 DraftFlow.gs          saveDraftFromPending, approveAndSend,
+│                            rejectDraft, getDraftsAwaitingApproval,
+│                            getDraftForEdit, updateDraftFromPending,
+│                            notifyApproversOfDraft
+└── 11 Reminders.gs          setupDailyReminder, dailyFollowUpReminder,
+                             findStalePendingCustomerQuotes
 ```
 
 ---
 
-## Quotation Flow (Preview → Confirm)
+## Tracker sheet (`NEW COMBINED`)
+
+| Col | Header | Source | Notes |
+|---|---|---|---|
+| A | Date | written | Quote date |
+| B | Quote # | written | `WORQ/ITG/2026/10` (new) or `… rev1` (revision) |
+| C | Customer | written | Company name |
+| D | Work | written | Description |
+| E | Remark | manual | Internal notes (not touched by code) |
+| F | Document Link | written | Drive PDF URL |
+| G | Quoted Price | written | Gross to customer |
+| H | Cost Price | written | Internal |
+| I | Profit | written | G − H |
+| J | Margin | written | I / G as % |
+| K | Status | written + dropdown | `Draft / Pending Customer / Pending Bill / Billed / Cancelled` |
+| L | Remark | manual | Free-text — historically held invoice numbers, now use M |
+| M | Invoice number | written by `markBilled` | Format `C-{digits}-{digits}` |
+| N | Drafted by | written by `saveDraft` | Email of the team member who drafted |
+| O | Rejection note | written by `rejectDraft` | Free-text reason from approver |
+
+Every quotation always **appends** a new row. Drafts are mutated in place during the edit-draft flow but never removed; rejection sets status `Cancelled` and writes column O. Approval flips status from `Draft` to `Pending Customer` on the same row.
+
+---
+
+## ADDRESS tab
+
+Columns: A=Outlet Code, B=Full Address (multi-line), C=Outlet Email, D=Account No.
+
+Fetched at runtime — update the sheet, no code changes needed. Account number from D appears in the PDF payment details. Line 1 of B is the location name; line 2 is the company name; rest is the postal address.
+
+---
+
+## Hidden `_payloads` tab
+
+Storage layer for revisions and customer autocomplete. Created automatically on first write.
+
+Columns: A=quoteNumber, B=parentQuoteNumber, C=timestamp, D=payloadJson.
+
+- `savePayload` appends one row per sent quote (full payload JSON)
+- `upsertPayload` is used by drafts so editing replaces the row in place
+- `loadPayload(quoteNumber)` returns the most recent row matching that quote number (case-sensitive)
+- `getQuoteHistory(limit)` joins payloads with tracker metadata for the Revise picker
+- `getCustomerHistory()` returns a deduped list of past customer names (datalist source)
+- `getCustomerProfile(name)` returns all distinct values per contact field (email/CC/address) seen for that customer, newest first
+
+The tab stays hidden in normal use; right-click → Show all sheets if you need to inspect.
+
+---
+
+## Price catalogue (`Hardware & Services`)
+
+Columns: A=Category | B=Brand | C=Item Description | D=Cost/Unit | E=Cost Price | F=Price | G=Charge Type | H=Remark.
+
+**Row classification:**
+- Non-empty **Category (A)** = parent row, starts a new item group
+- Blank A, non-empty **Brand (B)** = sibling item under the same category, OR a secondary billing component if it has a different charge type from the parent
+- Blank A and B, non-empty C = sub-component of the previous item
+- Blank A and B, all empty = spacer (filtered out)
+
+**Selling price:**
+- If F is set → used directly
+- Otherwise computed from E using 30% markup: `roundup(Cost / 0.7, -2)` (round up to nearest 10)
+
+**Custom items:** two special rows at the end of the catalogue (`One-off Custom Item`, `Monthly Custom Item`). When added, the description and cost price become editable inline.
+
+After updating the catalogue → `Quotation Generator → Clear Cache` from the menu.
+
+---
+
+## Quote number logic
+
+Format `WORQ/{LOCATION}/{YEAR}/{N}`, plus optional ` rev{n}` suffix.
 
 ```
-1. Open Quotation Tracker sheet
-2. Click "Quotation Generator > Generate Quotation"
-3. Modal dialog opens (1000×750px):
-   - Fill location, customer details, work description
-   - Fill customer email and optional CC email
-   - Search and add items from catalogue
-   - Adjust qty / unit price as needed
-
-4. Click "Generate Quotation"
-   → Server builds HTML preview (no PDF yet)
-   → Preview rendered in iframe inside the dialog
-
-5. Review the quotation:
-   - Click "← Back & Edit" to go back and make changes
-   - Click "Confirm & Send" to finalise
-
-6. On confirm:
-   - PDF generated and saved to Drive folder
-   - Email sent to customer (with PDF attachment); CC address included if provided
-   - Outlet email sent separately
-   - New row appended to tracker with all details
-   - Success message with link to PDF
+WORQ/ITG/2026/10
+WORQ/TTDI/2026/11        ← shared running counter across locations
+WORQ/ITG/2026/11 rev1    ← revision (lowercase, space-rev-N)
+WORQ/ITG/2026/11 rev2    ← later revision
 ```
 
----
-
-## Sidebar Features
-
-### Catalogue Search & Add
-- Search box filters catalogue by category, brand, or description in real time
-- Catalogue list shows `[Category] Brand — Description`
-- Selecting an item and clicking `+ Add Item` adds it to the items table
-- **Bug fix:** filtered catalogue uses original index into `allCatalogueItems` — adding a filtered item always adds the correct item regardless of filter position
-
-### Items Table
-Columns: Description | Cat | Type | Qty | Unit Price | Total | (remove)
-
-- **Type column** shows the item's charge type (Monthly in blue, One-Off in grey)
-- **Custom items** render the description as an editable text input
-- Qty and Unit Price are editable inline; totals recalculate on change
-
-### Charge-Type Totals
-- Sidebar shows a grouped breakdown (Monthly / One-Off) above the Cost/Quoted totals
-- Breakdown is hidden when all items share the same charge type
-- Bundle items with no top-level charge type (e.g. Unifi) do not appear in the breakdown
-
-### Email Fields
-- **Email** — primary recipient, PDF attached
-- **CC Email (optional)** — added as CC on the customer email only
+The running counter scans column B for the highest trailing number across all locations for the current year, then increments. Revisions never bump the counter — they reuse the parent number with a rev suffix and append a new tracker row.
 
 ---
 
-## PDF Layout
+## In-sheet sidebar workflow
 
-```
-┌──────────────────────────────────────────────────────┐
-│ [WORQ Logo]              WORQ Intermark               │
-│                          WORQ KL SDN BHD              │
-│                          Suite 09-01, Level 9..       │
-│                          integra@worq.space           │
-├──────────────────────────────────────────────────────┤
-│ Quotation                Quotation Date               │
-│                          27 Mar 2026                  │
-│ Customer Name                                         │
-│ Customer Address         Quotation Number             │
-│                          WORQ/ITG/2026/11             │
-├──────────────────────────────────────────────────────┤
-│ Description          │ Qty │ Unit Price (MYR) │ Amt  │
-├──────────────────────┴─────┴─────────────────┴───────┤
-│ Card Access  (category header)                        │
-│ 1. Card Reader + PIN [One-Off]         1  4,700  4,700│
-│    a) PROID30BM Reader                                │
-│    b) Inbio Pro Plus Controller                       │
-│                                                       │
-│ Landline  (category header)                           │
-│ 2. Unifi bundle                                       │
-│    Unifi Landline Activation Fee  [One-Off]           │
-│    Unifi Physical Landline        [Monthly]           │
-│    Land line Cable Pull           [One-Off]           │
-│                                    1    420    420    │
-│                                                       │
-│                        One-Off       MYR 4,840.00    │
-│                        Monthly         MYR 300.00    │
-│                        ──────────────────────────    │
-│                        TOTAL         MYR 5,140.00    │
-├──────────────────────────────────────────────────────┤
-│ PAYMENT DETAILS                                       │
-│ Bank: Malayan Banking Berhad (Maybank)               │
-│ Account Name: [dynamic — company name from location] │
-│ Account No: [dynamic from ADDRESS tab]               │
-│ SWIFT: MBBEMYKL                                      │
-│ Payment Reference: WORQ/ITG/2026/11                  │
-├──────────────────────────────────────────────────────┤
-│ Terms & Conditions                                    │
-│ Warranty: 12 months (manufacturer warranty)          │
-│ Validity: 30 days from quotation date                │
-│ Payment Terms: 100% upon completion                  │
-│ Prices are subject to change without prior notice    │
-└──────────────────────────────────────────────────────┘
-```
-
-**Charge type tags:**
-- Each line item shows a coloured pill tag: `[One-Off]` (grey) or `[Monthly]` (blue)
-- For bundle items (blank parent chargeType), tags appear on each sub-row individually
-- Tags are rendered using inline `<table>` layout for reliable alignment in Google's PDF renderer
-
-**Charge-group subtotals:**
-- Shown between the last item row and the TOTAL row
-- Only rendered when 2+ distinct charge types exist across top-level items
-- Bundle items with blank parent chargeType are excluded from the subtotal split (totals remain correct)
-
-**PDF Generation method:** HTML string → `DriveApp.createFile(blob)` → `.getAs('application/pdf')` → trash temp file → save PDF blob to Drive folder.
-
-**Logo:** Fetched from Drive using `LOGO_FILE_ID`, converted to base64 data URI — ensures logo renders during Drive's HTML→PDF conversion. Cached 6 hours.
-
-**Account Name:** Pulled dynamically from the location's company name (line 2 of the full address block in ADDRESS tab).
-
-**Account Number:** Pulled dynamically from ADDRESS tab col D per outlet.
+1. Open the tracker spreadsheet → menu `Quotation Generator → Generate Quotation`
+2. Modal dialog (1000×750):
+   - Pick location, customer details, work
+   - Search catalogue, add items, adjust qty / unit price
+   - Optionally tick "Is this a revision?" and edit the rev number
+3. Click **Generate Quotation**
+   - Server builds HTML, returns it; preview renders inside the dialog iframe
+   - Pending payload cached for 10 min
+4. Click **Confirm & Send**
+   - PDF generated, saved to Drive folder
+   - Email sent to customer (PDF attached); CC included if provided
+   - Tracker row appended with status `Pending Customer`
+   - Payload upserted to `_payloads`
 
 ---
 
-## Menu Options
+## Web app workflow
 
-| Menu Item | Function |
-|---|---|
-| Generate Quotation | Opens the 1000×750 modal dialog |
-| Clear Cache | Clears catalogue and logo cache — **run after any catalogue sheet update** |
+URL is the deployment's `/exec` URL. Access is `Anyone within worq.space`. Execute as the script owner.
 
----
+### Landing dashboard
 
-## Output Actions (on Confirm)
+- **+ New Quote** card — fresh quotation, threshold-aware send/draft buttons
+- **↻ Revise Quote** card — picker over past quotes (excludes Draft and Billed)
+- **Drafts awaiting your approval** — visible only when 1+ drafts exist; approvers see all drafts, drafters see only their own
+- **Recent quotes** — last 30 days, hides `Billed` and `Cancelled` rows (worklist mode)
 
-1. PDF saved to Drive folder → filename: `WORQ-ITG-2026-11.pdf`
-2. New row appended to tracker with: Date, Quote#, Customer, Work, Doc Link, Quoted Price, Cost Price, Profit, Margin, Billed? (default: Pending Customer)
-3. Row inherits dropdown validation and formatting from previous row
-4. PDF emailed to customer (GmailApp, PDF as attachment); CC address added if provided
-5. Outlet email sent separately (BCC-style internal copy)
+### Recent quotes row controls
 
----
+Each row has `[PDF] [⋯]` plus, on `Pending Bill` rows, a fast-path `[+ Invoice #]`. The `⋯` menu offers mark-as-X actions for every status that isn't current. `Mark Billed` always prompts for an invoice number (regex `^C-\d+-\d+$`) and writes column M atomically with status K.
 
-## Clasp Dev Workflow
+### New Quote view
 
-```bash
-# One-time setup
-git clone https://github.com/Aurorary/AS_quotation_generator.git
-cd AS_quotation_generator
+- Customer name field uses an HTML `<datalist>` populated from `getCustomerHistory`
+- Picking a known customer triggers `getCustomerProfile`:
+  - Single historical value per field → autofill it (and remember the autofill so a later customer change can replace it without clobbering hand-typed values)
+  - Multiple distinct values → show clickable hint pills under the field; click to fill
+- Margin row appears under Quoted Total once both quoted and cost are non-zero; orange `LOW MARGIN` chip when margin < 20% (soft warning, doesn't block)
 
-npm install -g @google/clasp
-clasp login
-# Enable Apps Script API first: script.google.com/home/usersettings
+### Preview panel
 
-# Daily development
-clasp push --force    # push local changes to Apps Script
-clasp open            # open Apps Script editor in browser
-clasp logs            # view Stackdriver logs for debugging
+- `← Back & Edit` (always present)
+- `Save as Draft` (always available)
+- `Send Now` — hidden when:
+  - Current user is non-approver and gross ≥ RM 10,000, or
+  - This is a revision (revisions always go through approval)
+  - In both cases, an explanatory yellow notice appears
+
+`confirmQuotation` re-checks the threshold server-side so the rule can't be bypassed by editing the page.
+
+### Revise picker
+
+Searchable list of past quotes (excludes Draft and Billed; Cancelled stays so a rejected proposal can be revived). Click `Revise →` to load the New Quote form with everything pre-filled and the quote number bumped (`… rev1` → `… rev2`). Cross-payload backfill: any contact field empty in the original payload is filled from the customer's other quotes when there's exactly one historical value, or surfaced as hints if multiple.
+
+### Review Draft view (approvers)
+
+Approvers click `Review →` on a draft row → split-pane with the draft PDF embedded via Drive's `/preview` URL and three actions:
+
+- **Reject with note** — prompts for reason → status `Cancelled`, note in column O, drafter emailed
+- **Edit** — loads the form prefilled (banner says "Editing draft … (drafted by …)"), buttons become `Update Draft` / `Approve & Send`
+- **Approve & Send** — atomic: re-renders PDF without the `[DRAFT]` prefix, sends to customer, flips draft row to `Pending Customer`, trashes the draft PDF
+
+Non-approvers clicking `Edit →` on their own draft skip the review view and go straight into the editable form; they see only `Update Draft` (no send).
+
+### Approval threshold
+
+```js
+APPROVER_EMAILS         = ['afdhal@worq.space']     // 01 Code.gs
+APPROVAL_THRESHOLD_MYR  = 10000
 ```
 
-After each `clasp push --force`: reload the Tracker spreadsheet in browser to test changes.
+Rules:
+
+| Who | Quote amount | Direct send | Save draft |
+|---|---|---|---|
+| Approver | any | ✅ | ✅ |
+| Team member | < RM 10K | ✅ | ✅ |
+| Team member | ≥ RM 10K | ❌ | ✅ |
+| Anyone | revising | ❌ | ✅ |
+
+Drafts always notify all approvers via email. Approval is atomic — clicking Approve & Send fires the same send flow as a direct send, using the saved payload snapshot.
 
 ---
 
-## Setup Checklist
+## PDF layout
+
+Same template, with a `[DRAFT] ` filename prefix while in draft state. The prefix is dropped when the draft is approved and a fresh PDF is generated.
+
+Filename format: `WORQ-{LOCATION}-{YEAR}-{N} ({Customer Name}).pdf`
+
+- Slashes in the quote number become hyphens
+- Customer name has filename-illegal chars stripped (`\ / : * ? " < > |`)
+- Customer name is omitted if blank
+
+Existing PDFs are inherited from the parent folder's sharing settings — `setSharing` is intentionally not called (it fails when the executing identity isn't the file owner).
+
+---
+
+## Daily follow-up reminder
+
+`11 Reminders.gs` installs a time-driven trigger via `setupDailyReminder`:
+
+- Fires daily at 9am Asia/Kuala_Lumpur
+- Scans tracker for `Pending Customer` rows older than 7 days
+- Sends a single digest email to `afdhal@worq.space` listing the stale quotes (oldest first), with quote number, customer, days-old, amount, and Drive link
+- Sends nothing if zero stale quotes (no noise)
+
+To install or reinstall: open `11 Reminders.gs` in the editor, select `setupDailyReminder` from the function dropdown, click Run, authorise the prompt. Re-running deletes any prior trigger first, so it's idempotent.
+
+To test ad-hoc: run `testDailyReminderNow` from the editor.
+
+---
+
+## Email behaviour
+
+| Scenario | To | CC | Body |
+|---|---|---|---|
+| Quote sent to customer | `payload.customerEmail` | `payload.ccEmail` if provided | Brief greeting, no Drive link (PDF is attached) |
+| Approval-needed notification | every email in `APPROVER_EMAILS` | — | Quote#, customer, amount, drafter, link to dashboard |
+| Draft rejected | drafter (column N) | — | Approver's note |
+| Daily follow-up digest | `afdhal@worq.space` | — | Bulleted list of stale quotes |
+
+The internal `it@worq.space` CC was removed. The location-email copy (sending to the WORQ outlet's own address) is currently commented out at [02 Sidebar.gs:169-171] for testing — re-enable when ready.
+
+---
+
+## Permissions and identity
+
+- Web app deploys as the script owner (`it_worq@worq.space`); `Session.getActiveUser().getEmail()` resolves to the *viewing* user thanks to `userinfo.email` scope
+- Approver allowlist is checked server-side in `approveAndSend`, `rejectDraft`, and `confirmQuotation` (≥ RM 10K rule). Frontend gating mirrors these rules but is not the source of truth.
+- Drive folder is in a shared workspace folder; all WORQ accounts inherit access. The script never calls `setSharing` because the executing identity isn't always the folder owner.
+
+---
+
+## Setup checklist
 
 - [ ] `npm install -g @google/clasp` and `clasp login`
 - [ ] Apps Script API enabled at script.google.com/home/usersettings
-- [ ] `.clasp.json` has correct `scriptId` and `parentId` (Tracker spreadsheet ID)
-- [ ] Run `setupScriptProperties()` from Apps Script editor
-- [ ] Run `Quotation Generator > Clear Cache` after first setup
-- [ ] **Test:** "Quotation Generator" menu appears after reload
-- [ ] **Test:** Modal opens, location dropdown populated, quote number auto-generates
-- [ ] **Test:** Catalogue loads, search filters work, item added from filtered list is correct
-- [ ] **Test:** Charge type (Type column) shows correctly per item in sidebar
-- [ ] **Test:** Charge-type grouped totals appear in sidebar when both types present
-- [ ] **Test:** Custom item description is editable; price entered manually
-- [ ] **Test:** CC email field passes through to sent email
-- [ ] **Test:** Preview renders with charge type tags on item rows and sub-rows
-- [ ] **Test:** PDF generates with correct location address, logo, grouped items, account number
-- [ ] **Test:** Drive folder receives PDF file named correctly
-- [ ] **Test:** Customer email received with PDF attached
-- [ ] **Test:** Tracker row appended with all columns filled and dropdown validation intact
+- [ ] `.clasp.json` has correct `scriptId` and `parentId`
+- [ ] Run `setupScriptProperties()` from the editor
+- [ ] Run `setupDailyReminder()` from `11 Reminders.gs` (one time, will prompt for new scopes)
+- [ ] In Apps Script editor → **Deploy → New deployment** → type Web app, execute as Me, access "Anyone within worq.space" → copy `/exec` URL
+- [ ] Tracker sheet has columns M (Invoice number), N (Drafted by), O (Rejection note) headers added
+- [ ] Column K dropdown contains: `Draft / Pending Customer / Pending Bill / Billed / Cancelled`
+- [ ] Sidebar smoke test: menu opens modal, end-to-end send works
+- [ ] Web app smoke test: dashboard loads, drafts, autocomplete, revise, status menu, invoice prompt all reachable
+- [ ] Email digest test: run `testDailyReminderNow` after creating a >7-day stale `Pending Customer` row (or temporarily lower `REMINDER_AGE_DAYS` to 0)
+
+---
+
+## clasp dev workflow
+
+```bash
+# Daily
+clasp push --force         # push local edits
+clasp open                 # open editor in browser
+clasp logs                 # Stackdriver tail for debugging
+```
+
+Web app deployments are versioned. `clasp push` only updates the source — to ship a new version to users, **Deploy → Manage deployments → ✏ on active deployment → "New version" → Deploy**, or use the `/dev` URL during development (always serves latest pushed source).
+
+---
+
+## Phase log
+
+The current capability set was built in four phases on top of the original sidebar tool:
+
+- **Phase A** — web app shell, full-page landing dashboard, New Quote view ported from sidebar
+- **Phase C** — `_payloads` tab, Revise picker, full payload restoration into the form
+- **Phase B** — customer autocomplete with single-value autofill and multi-value clickable hints, applied to both new and revise flows
+- **Phase D**
+  - D1: status row menu, `Yes` → `Billed` rename, invoice-gated `Mark Billed`
+  - D2: draft → approval → send/reject pipeline with RM 10K threshold
+  - D3: inline `+ Invoice #` fast-path on `Pending Bill` rows, column-mapping fix
+  - D4: daily 9am follow-up digest, margin guardrail at 20%, dashboard / revise status filters
+
+The in-sheet sidebar continues to work alongside the web app for any flow you prefer to keep "inside" the spreadsheet.

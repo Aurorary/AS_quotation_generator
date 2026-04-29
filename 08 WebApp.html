@@ -81,6 +81,24 @@
     padding: 24px; text-align: center; color: #aaa; font-size: 12px;
   }
 
+  /* Revise list */
+  .revise-item {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; border-bottom: 1px solid #f0f0f0;
+  }
+  .revise-item:last-child { border-bottom: none; }
+  .revise-item:hover { background: #fafbfc; }
+  .revise-item .meta { flex: 1; min-width: 0; }
+  .revise-item .meta .line1 { font-size: 12px; color: #1a1a1a; margin-bottom: 2px; }
+  .revise-item .meta .line1 .qnum { font-family: 'Courier New', monospace; font-weight: bold; }
+  .revise-item .meta .line1 .sep { color: #ccc; margin: 0 6px; }
+  .revise-item .meta .line2 { font-size: 11px; color: #666; }
+  .revise-item button {
+    padding: 6px 12px; background: #4a90d9; color: #fff; border: none; border-radius: 3px;
+    cursor: pointer; font-size: 11px; font-weight: bold; white-space: nowrap; margin-left: 12px;
+  }
+  .revise-item button:hover { background: #357abd; }
+
   /* ── Quote form view (ported from sidebar) ─────────── */
   .view { display: none; }
   .view.active { display: block; }
@@ -188,9 +206,9 @@
         + New Quote
         <span class="sub">Create and send a fresh quotation</span>
       </button>
-      <button class="action-btn disabled" title="Coming in Phase C">
+      <button class="action-btn" onclick="showRevise()">
         ↻ Revise Quote
-        <span class="sub">Coming soon</span>
+        <span class="sub">Create a new version of an existing quote</span>
       </button>
     </div>
 
@@ -205,6 +223,22 @@
 
   </div>
 
+  <!-- ============ REVISE VIEW ============ -->
+  <div id="reviseView" class="view">
+    <div class="back-bar">
+      <a href="#" onclick="showLanding(); return false;">← Back to dashboard</a>
+    </div>
+    <div class="card">
+      <div class="card-header">Revise existing quote</div>
+      <div style="padding: 12px 14px; border-bottom: 1px solid #eee;">
+        <input type="text" id="reviseSearch" placeholder="Search by quote # or customer name…" oninput="filterRevisableQuotes()" style="margin-bottom: 0;">
+      </div>
+      <div id="reviseList">
+        <div class="empty">Loading…</div>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ NEW QUOTE VIEW ============ -->
   <div id="newQuoteView" class="view">
 
@@ -213,6 +247,10 @@
     </div>
 
     <div class="form-card">
+
+      <div id="reviseBanner" style="display:none; background:#fff8e1; border:1px solid #f0c040; border-radius:4px; padding:8px 12px; margin-bottom:12px; font-size:12px; color:#8a6800;">
+        Revising <strong id="reviseBannerOriginal"></strong>. Items, prices, and customer details have been pre-filled — adjust as needed.
+      </div>
 
       <div class="section-title" style="margin-top:0;">Quote &amp; Customer Details</div>
 
@@ -370,8 +408,14 @@ function statusPill(status) {
 }
 
 // ── View routing ─────────────────────────────────────────────
-function showLanding() {
+function hideAllViews() {
+  document.getElementById('landingView').classList.remove('active');
+  document.getElementById('reviseView').classList.remove('active');
   document.getElementById('newQuoteView').classList.remove('active');
+}
+
+function showLanding() {
+  hideAllViews();
   document.getElementById('landingView').classList.add('active');
   // Refresh recent list when returning to dashboard
   google.script.run
@@ -381,12 +425,148 @@ function showLanding() {
 }
 
 function showNewQuote() {
-  document.getElementById('landingView').classList.remove('active');
+  hideAllViews();
   document.getElementById('newQuoteView').classList.add('active');
   if (!newQuoteInitialized) {
     initNewQuoteView();
     newQuoteInitialized = true;
+  } else if (window._parentQuoteNumber) {
+    // Coming from a prior revise — clear it
+    resetForm();
   }
+}
+
+// ── Revise picker ────────────────────────────────────────────
+var revisableQuotes = [];
+
+function showRevise() {
+  hideAllViews();
+  document.getElementById('reviseView').classList.add('active');
+  document.getElementById('reviseList').innerHTML = '<div class="empty">Loading…</div>';
+  document.getElementById('reviseSearch').value = '';
+  google.script.run
+    .withSuccessHandler(onQuoteHistoryLoaded)
+    .withFailureHandler(onError)
+    .getQuoteHistory(100);
+}
+
+function onQuoteHistoryLoaded(quotes) {
+  revisableQuotes = quotes || [];
+  renderRevisableQuotes(revisableQuotes);
+}
+
+function renderRevisableQuotes(quotes) {
+  var listEl = document.getElementById('reviseList');
+  if (quotes.length === 0) {
+    listEl.innerHTML = '<div class="empty">No revisable quotes found. Quotes saved from the web app will appear here.</div>';
+    return;
+  }
+  var html = '';
+  quotes.forEach(function(q) {
+    var statusHtml = q.status ? statusPill(q.status) : '';
+    var amountHtml = q.quotedPrice > 0 ? 'RM ' + formatMyr(q.quotedPrice) : '';
+    html += '<div class="revise-item">' +
+      '<div class="meta">' +
+        '<div class="line1">' +
+          '<span class="qnum">' + escHtml(q.quoteNumber) + '</span>' +
+          (q.customer ? '<span class="sep">·</span>' + escHtml(q.customer) : '') +
+          (amountHtml ? '<span class="sep">·</span>' + amountHtml : '') +
+          (statusHtml ? ' ' + statusHtml : '') +
+        '</div>' +
+        '<div class="line2">' +
+          (q.date ? escHtml(q.date) : escHtml(q.savedAt)) +
+          (q.work ? ' — ' + escHtml(q.work.slice(0, 60)) : '') +
+        '</div>' +
+      '</div>' +
+      '<button onclick="reviseQuote(\'' + escAttr(q.quoteNumber) + '\')">Revise →</button>' +
+    '</div>';
+  });
+  listEl.innerHTML = html;
+}
+
+function filterRevisableQuotes() {
+  var q = document.getElementById('reviseSearch').value.toLowerCase().trim();
+  if (!q) { renderRevisableQuotes(revisableQuotes); return; }
+  var filtered = revisableQuotes.filter(function(item) {
+    return (item.quoteNumber + ' ' + item.customer + ' ' + item.work).toLowerCase().indexOf(q) !== -1;
+  });
+  renderRevisableQuotes(filtered);
+}
+
+function reviseQuote(quoteNumber) {
+  setStatus('<span class="spinner"></span> Loading saved quote…', 'info');
+  google.script.run
+    .withSuccessHandler(onRevisionDataLoaded)
+    .withFailureHandler(onError)
+    .getRevisionData(quoteNumber);
+}
+
+function onRevisionDataLoaded(result) {
+  if (!result.success) {
+    alert(result.error || 'Failed to load saved quote.');
+    return;
+  }
+  // Switch to New Quote view (init if first time so dropdowns/catalogue are loaded)
+  hideAllViews();
+  document.getElementById('newQuoteView').classList.add('active');
+  if (!newQuoteInitialized) {
+    initNewQuoteView();
+    newQuoteInitialized = true;
+    // Wait for catalogue load before prefilling
+    var checkReady = setInterval(function() {
+      if (allCatalogueItems.length > 0 && locations.length > 0) {
+        clearInterval(checkReady);
+        prefillFormFromPayload(result.payload, result.parentQuoteNumber, result.newQuoteNumber);
+      }
+    }, 100);
+  } else {
+    prefillFormFromPayload(result.payload, result.parentQuoteNumber, result.newQuoteNumber);
+  }
+}
+
+function prefillFormFromPayload(payload, parentQuoteNumber, newQuoteNumber) {
+  // Show banner
+  document.getElementById('reviseBanner').style.display = 'block';
+  document.getElementById('reviseBannerOriginal').textContent = parentQuoteNumber;
+
+  // Stash parent linkage on window for buildPayload to pick up
+  window._parentQuoteNumber = parentQuoteNumber;
+
+  // Header
+  if (payload.locationCode) {
+    document.getElementById('locationSelect').value = payload.locationCode;
+  }
+  document.getElementById('quoteNumberDisplay').value = newQuoteNumber;
+  document.getElementById('quoteDate').value = payload.quoteDate || document.getElementById('quoteDate').value;
+
+  // Customer
+  document.getElementById('customerName').value    = payload.customerName    || '';
+  document.getElementById('workDesc').value        = payload.work            || '';
+  document.getElementById('customerAddress').value = payload.customerAddress || '';
+  document.getElementById('customerEmail').value   = payload.customerEmail   || '';
+  document.getElementById('ccEmail').value         = payload.ccEmail         || '';
+
+  // Items — restore each line with its sub-rows / extra-price-rows / charge type
+  addedItems = [];
+  (payload.items || []).forEach(function(it) {
+    addedItems.push({
+      id: nextItemId++,
+      category: it.category || '',
+      chargeType: it.chargeType || '',
+      description: it.description || '',
+      isCustom: false,
+      subRows: it.subRows || [],
+      extraPriceRows: it.extraPriceRows || [],
+      qty: it.qty || 1,
+      unitPrice: it.unitPrice || 0,
+      costPrice: it.catalogueCostPrice || 0,
+      cataloguePrice: it.unitPrice || 0,
+      lineTotal: it.lineTotal || 0
+    });
+  });
+  renderItemsTable();
+  recalcTotals();
+  setStatus('Revising ' + parentQuoteNumber + ' — adjust as needed and generate.', 'info');
 }
 
 function initNewQuoteView() {
@@ -644,7 +824,8 @@ function buildPayload() {
     rowIndex: null,
     locationCode: document.getElementById('locationSelect').value,
     quoteNumber: quoteNumber,
-    isRevision: false,
+    parentQuoteNumber: window._parentQuoteNumber || '',
+    isRevision: !!window._parentQuoteNumber,
     quoteDate: document.getElementById('quoteDate').value,
     customerName: customerName,
     work: document.getElementById('workDesc').value.trim(),
@@ -726,6 +907,8 @@ function backToForm() {
 
 function resetForm() {
   addedItems = [];
+  window._parentQuoteNumber = null;
+  document.getElementById('reviseBanner').style.display = 'none';
   ['customerName', 'workDesc', 'customerAddress', 'customerEmail', 'ccEmail', 'catalogueSearch'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.value = '';

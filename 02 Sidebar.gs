@@ -173,6 +173,9 @@ function confirmQuotation() {
 
     updateTrackerRow(payload.rowIndex, payload.quoteNumber, driveUrl, payload.quotedPrice, payload.costPrice, payload.quoteDate, payload.customerName, payload.work);
 
+    // Persist payload for future revisions
+    savePayload(payload.quoteNumber, payload.parentQuoteNumber || '', payload);
+
     return { success: true, pdfUrl: driveUrl };
 
   } catch (e) {

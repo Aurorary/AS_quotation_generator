@@ -28,6 +28,9 @@ function savePayload(quoteNumber, parentQuoteNumber, payload) {
     new Date(),
     JSON.stringify(payload)
   ]);
+  // Invalidate customer-history cache so a newly-quoted customer shows up
+  // in autocomplete immediately instead of after the 5-min TTL.
+  CacheService.getScriptCache().remove('customerHistory');
 }
 
 function loadPayload(quoteNumber) {
@@ -115,10 +118,84 @@ function getRevisionData(quoteNumber) {
   if (!payload) {
     return { success: false, error: 'No saved payload found for ' + quoteNumber };
   }
+  // Backfill any missing customer-detail fields from older quotes to the same
+  // customer — but only when exactly one historical value is known. Multiple
+  // distinct values (e.g. several addresses) are surfaced as hints in the UI.
+  const profile = getCustomerProfile(payload.customerName);
+  if (profile) {
+    if (!payload.customerEmail   && profile.customerEmail.length   === 1) payload.customerEmail   = profile.customerEmail[0];
+    if (!payload.ccEmail         && profile.ccEmail.length         === 1) payload.ccEmail         = profile.ccEmail[0];
+    if (!payload.customerAddress && profile.customerAddress.length === 1) payload.customerAddress = profile.customerAddress[0];
+  }
   return {
     success: true,
     parentQuoteNumber: quoteNumber,
     newQuoteNumber: buildRevisionNumber(quoteNumber),
     payload: payload
   };
+}
+
+// ── Customer history (distinct names, for datalist) ──────────
+function getCustomerHistory() {
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get('customerHistory');
+  if (cached) return JSON.parse(cached);
+
+  const sheet = getPayloadsSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return [];
+
+  const values = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
+  const seen = {};
+  // Walk newest first so the first encounter of each name wins for "lastSeen"
+  for (let i = values.length - 1; i >= 0; i--) {
+    let payload;
+    try { payload = JSON.parse(values[i][3] || '{}'); } catch (e) { continue; }
+    const name = (payload.customerName || '').trim();
+    if (!name) continue;
+    const key = name.toLowerCase();
+    if (!seen[key]) {
+      seen[key] = { name: name };
+    }
+  }
+  const out = Object.keys(seen).map(function(k) { return seen[k]; });
+  out.sort(function(a, b) { return a.name.localeCompare(b.name); });
+  cache.put('customerHistory', JSON.stringify(out), 300);
+  return out;
+}
+
+// ── Customer profile (distinct values per field, newest first) ──
+// Walks _payloads newest-to-oldest for the given customer name (case-insensitive)
+// and returns ALL distinct non-empty values seen for each field, in
+// most-recent-first order. The frontend decides whether to autofill (when
+// exactly one value is known) or show clickable hints (when 2+ exist).
+function getCustomerProfile(customerName) {
+  const target = (customerName || '').trim().toLowerCase();
+  if (!target) return null;
+
+  const sheet = getPayloadsSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow <= 1) return null;
+
+  const values = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
+  const fields = ['customerEmail', 'ccEmail', 'customerAddress'];
+  const seen = { customerEmail: {}, ccEmail: {}, customerAddress: {} };
+  const out  = { customerEmail: [], ccEmail: [], customerAddress: [] };
+  let found = false;
+
+  for (let i = values.length - 1; i >= 0; i--) {
+    let payload;
+    try { payload = JSON.parse(values[i][3] || '{}'); } catch (e) { continue; }
+    if ((payload.customerName || '').trim().toLowerCase() !== target) continue;
+    found = true;
+    fields.forEach(function(f) {
+      const v = (payload[f] || '').toString().trim();
+      if (!v) return;
+      const key = v.toLowerCase();
+      if (seen[f][key]) return;
+      seen[f][key] = true;
+      out[f].push(v);
+    });
+  }
+  return found ? out : null;
 }

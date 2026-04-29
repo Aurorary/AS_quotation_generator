@@ -159,8 +159,8 @@ function confirmQuotation() {
 
     const logoDataUri = getLogoBase64();
     const htmlString = buildHtmlQuotation(payload, loc, logoDataUri);
-    const pdfBlob = convertHtmlToPdf(htmlString, payload.quoteNumber);
-    const driveUrl = savePdf(pdfBlob, payload.quoteNumber);
+    const pdfBlob = convertHtmlToPdf(htmlString, payload.quoteNumber, payload.customerName);
+    const driveUrl = savePdf(pdfBlob, payload.quoteNumber, payload.customerName);
 
     if (payload.customerEmail) {
       const internalCc = 'it@worq.space';
@@ -190,7 +190,7 @@ function sendQuotationEmail(email, customerName, quoteNumber, pdfBlob, driveUrl,
     : 'Dear ' + customerName + ',\n\nPlease find attached your quotation ' + quoteNumber + '.\n\nShould you have any questions, feel free to reach out.\n\nBest regards,\nWORQ Team\n\nDrive link: ' + driveUrl;
 
   const opts = {
-    attachments: [pdfBlob.setName(quoteNumber.replace(/\//g, '-') + '.pdf')],
+    attachments: [pdfBlob.setName(buildPdfFileName(quoteNumber, customerName))],
     name: 'WORQ Quotation'
   };
   if (ccEmail) opts.cc = ccEmail;

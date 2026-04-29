@@ -200,16 +200,23 @@ function buildHtmlQuotation(payload, loc, logoDataUri) {
 }
 
 // ── Convert HTML string → PDF blob ──────────────────────────
-function convertHtmlToPdf(htmlString, quoteNumber) {
+function convertHtmlToPdf(htmlString, quoteNumber, customerName) {
   const blob = Utilities.newBlob(htmlString, 'text/html', 'temp-quote.html');
   const tempFile = DriveApp.createFile(blob);
   try {
     const pdfBlob = tempFile.getAs('application/pdf');
-    pdfBlob.setName(quoteNumber.replace(/\//g, '-') + '.pdf');
+    pdfBlob.setName(buildPdfFileName(quoteNumber, customerName));
     return pdfBlob;
   } finally {
     tempFile.setTrashed(true);
   }
+}
+
+// ── Build PDF filename: "WORQ-STO-2026-15 (Customer Name).pdf" ──
+function buildPdfFileName(quoteNumber, customerName) {
+  const safeQuote = (quoteNumber || '').replace(/\//g, '-');
+  const safeCust  = (customerName || '').replace(/[\\/:*?"<>|]/g, '').trim();
+  return safeCust ? safeQuote + ' (' + safeCust + ').pdf' : safeQuote + '.pdf';
 }
 
 // ── Helpers ──────────────────────────────────────────────────

@@ -7,7 +7,11 @@
 const REMINDER_HOUR = 9;                           // 9am
 const REMINDER_TIMEZONE = 'Asia/Kuala_Lumpur';
 const REMINDER_AGE_DAYS = 7;
-const REMINDER_RECIPIENT = 'afdhal@worq.space';
+// Each raiser receives a digest of THEIR stale quotes; afdhal is CC'd on
+// every digest for visibility. Quotes with a missing raiser fall back to
+// REMINDER_FALLBACK only (afdhal handles them directly).
+const REMINDER_CC = 'afdhal@worq.space';
+const REMINDER_FALLBACK = 'afdhal@worq.space';
 
 // ── Install the daily trigger (run once) ─────────────────────
 function setupDailyReminder() {
@@ -32,24 +36,41 @@ function dailyFollowUpReminder() {
     const stale = findStalePendingCustomerQuotes(REMINDER_AGE_DAYS);
     if (stale.length === 0) return;
 
-    const subject = '[WORQ Quotations] ' + stale.length +
-                    ' quote' + (stale.length === 1 ? '' : 's') +
-                    ' pending follow-up >' + REMINDER_AGE_DAYS + ' days';
-
-    let body = stale.length + ' quotation' + (stale.length === 1 ? ' has' : 's have') +
-               ' been sitting at "Pending Customer" for more than ' + REMINDER_AGE_DAYS +
-               ' days:\n\n';
-
+    // Group by raiser. Quotes missing a raiser go to the fallback bucket
+    // so they don't slip through the cracks while we backfill column N.
+    const buckets = {};
     stale.forEach(function(q) {
-      body += '• ' + q.quoteNumber + '  —  ' + q.customer +
-              '  —  ' + q.daysAgo + ' day' + (q.daysAgo === 1 ? '' : 's') + ' ago' +
-              '  —  RM ' + q.quotedPrice.toFixed(2) + '\n';
-      if (q.driveUrl) body += '   ' + q.driveUrl + '\n';
+      const key = q.raisedBy || REMINDER_FALLBACK;
+      if (!buckets[key]) buckets[key] = [];
+      buckets[key].push(q);
     });
 
-    body += '\nOpen the dashboard to follow up, mark Pending Bill, or cancel.';
+    Object.keys(buckets).forEach(function(raiser) {
+      const quotes = buckets[raiser];
+      const subject = '[WORQ Quotations] ' + quotes.length +
+                      ' quote' + (quotes.length === 1 ? '' : 's') +
+                      ' pending follow-up >' + REMINDER_AGE_DAYS + ' days';
 
-    GmailApp.sendEmail(REMINDER_RECIPIENT, subject, body, { name: 'WORQ Quotation Generator' });
+      let body = quotes.length + ' quotation' + (quotes.length === 1 ? ' has' : 's have') +
+                 ' been sitting at "Pending Customer" for more than ' + REMINDER_AGE_DAYS +
+                 ' days. Please follow up with the customer or update the status:\n\n';
+
+      quotes.forEach(function(q) {
+        body += '• ' + q.quoteNumber + '  —  ' + q.customer +
+                '  —  ' + q.daysAgo + ' day' + (q.daysAgo === 1 ? '' : 's') + ' ago' +
+                '  —  RM ' + q.quotedPrice.toFixed(2) + '\n';
+        if (q.driveUrl) body += '   ' + q.driveUrl + '\n';
+      });
+
+      body += '\nOpen the dashboard to follow up, mark Pending Bill, or cancel.';
+
+      const opts = { name: 'WORQ Quotation Generator' };
+      // Don't CC if the raiser IS afdhal (avoid duplicate copy in the same inbox)
+      if (REMINDER_CC && REMINDER_CC !== raiser) opts.cc = REMINDER_CC;
+
+      try { GmailApp.sendEmail(raiser, subject, body, opts); }
+      catch (e) { Logger.log('Failed to send reminder to ' + raiser + ': ' + e.message); }
+    });
 
   } catch (e) {
     console.error('dailyFollowUpReminder error:', e.message, e.stack);
@@ -63,7 +84,8 @@ function findStalePendingCustomerQuotes(thresholdDays) {
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
 
-  const values = sheet.getRange(2, 1, lastRow - 1, 11).getValues();
+  // Read through column N (Raised by) so we can group the digest per raiser
+  const values = sheet.getRange(2, 1, lastRow - 1, 14).getValues();
   const now = new Date();
   const out = [];
   for (let i = 0; i < values.length; i++) {
@@ -80,7 +102,8 @@ function findStalePendingCustomerQuotes(thresholdDays) {
       customer: r[2] ? r[2].toString().trim() : '',
       driveUrl: r[5] ? r[5].toString().trim() : '',
       quotedPrice: parseFloat(r[6]) || 0,
-      daysAgo: daysAgo
+      daysAgo: daysAgo,
+      raisedBy: r[13] ? r[13].toString().trim() : ''  // N = index 13
     });
   }
   // Oldest first — most pressing at the top of the digest

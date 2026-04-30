@@ -241,7 +241,7 @@ function markBilled(rowIndex, invoiceNumber) {
   if (rowIndex < 2 || rowIndex > lastRow) {
     return { success: false, error: 'Row ' + rowIndex + ' is out of range' };
   }
-  // Write both cells; column M=Invoice number, N=Drafted by, O=Rejection note
+  // Write both cells; column M=Invoice number, N=Raised by, O=Rejection note
   sheet.getRange(rowIndex, 13).setValue(inv);    // M = 13
   sheet.getRange(rowIndex, 11).setValue('Billed'); // K = 11
 
@@ -289,7 +289,8 @@ function getRecentQuotes() {
       driveUrl: r[5] ? r[5].toString().trim() : '',
       quotedPrice: parseFloat(r[6]) || 0,
       status: status,
-      invoiceNumber: r[12] ? r[12].toString().trim() : ''
+      invoiceNumber: r[12] ? r[12].toString().trim() : '',
+      raisedBy: r[13] ? r[13].toString().trim() : ''  // N = index 13
     });
   }
   // Oldest first — most overdue at the top
@@ -325,9 +326,11 @@ function getNewQuoteData() {
 }
 
 // ── Append a new tracker row ─────────────────────────────────
-// status defaults to 'Pending Customer' (the legacy send path).
-// draftedBy populates column M when set (used by saveDraft).
-function appendTrackerRow(quoteNumber, driveUrl, quotedPrice, costPrice, quoteDate, customerName, work, status, draftedBy) {
+// status defaults to 'Pending Customer' (direct-generate path).
+// raisedBy populates column N — always passed now so every quote has an
+// owner the daily reminder can chase. Drafts pass the drafter; direct
+// generates pass the current user via updateTrackerRow.
+function appendTrackerRow(quoteNumber, driveUrl, quotedPrice, costPrice, quoteDate, customerName, work, status, raisedBy) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const tabName = getProp('TRACKER_SHEET_TAB') || 'NEW COMBINED';
   const sheet = ss.getSheetByName(tabName);
@@ -349,7 +352,7 @@ function appendTrackerRow(quoteNumber, driveUrl, quotedPrice, costPrice, quoteDa
     SpreadsheetApp.CopyPasteType.PASTE_DATA_VALIDATION, false
   );
 
-  // A=Date, B=Quote#, C=Customer, D=Work, F=Doc Link, G=Quoted, H=Cost, I=Profit, J=Margin, K=Status, N=Drafted by
+  // A=Date, B=Quote#, C=Customer, D=Work, F=Doc Link, G=Quoted, H=Cost, I=Profit, J=Margin, K=Status, N=Raised by
   sheet.getRange(newRow, 1).setValue(quoteDate);
   sheet.getRange(newRow, 2).setValue(quoteNumber);
   sheet.getRange(newRow, 3).setValue(customerName);
@@ -360,11 +363,13 @@ function appendTrackerRow(quoteNumber, driveUrl, quotedPrice, costPrice, quoteDa
   sheet.getRange(newRow, 9).setValue(profit);
   sheet.getRange(newRow, 10).setValue(margin);
   sheet.getRange(newRow, 11).setValue(status || 'Pending Customer');
-  if (draftedBy) sheet.getRange(newRow, 14).setValue(draftedBy); // N = 14
+  if (raisedBy) sheet.getRange(newRow, 14).setValue(raisedBy); // N = 14
   return newRow;
 }
 
-// Back-compat wrapper for existing callers (sidebar etc.)
+// Back-compat wrapper for direct-generate callers (sidebar + web app
+// confirmQuotation). Stamps the current user as the raiser so they show
+// up on the daily follow-up digest.
 function updateTrackerRow(rowIndex, quoteNumber, driveUrl, quotedPrice, costPrice, quoteDate, customerName, work) {
-  return appendTrackerRow(quoteNumber, driveUrl, quotedPrice, costPrice, quoteDate, customerName, work, 'Pending Customer', '');
+  return appendTrackerRow(quoteNumber, driveUrl, quotedPrice, costPrice, quoteDate, customerName, work, 'Pending Customer', getCurrentUser());
 }

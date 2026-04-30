@@ -157,7 +157,7 @@ script.container.ui, script.scriptapp, userinfo.email
 | K | Status | written + dropdown | `Draft / Pending Customer / Pending Bill / Billed / Cancelled` |
 | L | Remark | manual | Free-text — historically held invoice numbers, now use M |
 | M | Invoice number | written by `markBilled` | Format `C-{digits}-{digits}` |
-| N | Drafted by | written by `saveDraft` | Email of the team member who drafted |
+| N | Raised by | written on every append (draft or direct generate) | Email of the team member who raised the quote — used by the daily reminder to chase the right person |
 | O | Rejection note | written by `rejectDraft` | Free-text reason from approver |
 
 Every quotation always **appends** a new row. Drafts are mutated in place during the edit-draft flow but never removed; rejection sets status `Cancelled` and writes column O. Approval flips status from `Draft` to `Pending Customer` on the same row.
@@ -255,7 +255,7 @@ URL is the deployment's `/exec` URL. Access is `Anyone within worq.space`. Execu
 - **+ New Quote** card — fresh quotation, threshold-aware Generate / Save Draft buttons
 - **↻ Revise Quote** card — picker over past quotes (excludes Draft and Billed)
 - **Drafts awaiting your approval** — visible only when 1+ drafts exist; approvers see all drafts, drafters see only their own
-- **Open quotes** — worklist of `Pending Customer` and `Pending Bill` rows (hides `Billed` and `Cancelled`), oldest first, with age badges
+- **Open quotes** — worklist of `Pending Customer` and `Pending Bill` rows (hides `Billed` and `Cancelled`), oldest first, with age badges and an **Owner** column (raiser email, shown as the local part with full email on hover)
 
 ### Open-quotes row controls
 
@@ -353,7 +353,8 @@ Generated PDFs inherit sharing from the parent folder — `setSharing` is intent
 
 - Fires daily at 9am Asia/Kuala_Lumpur
 - Scans tracker for `Pending Customer` rows older than 7 days
-- Sends a single digest email to `afdhal@worq.space` listing the stale quotes (oldest first), with quote number, customer, days-old, amount, and Drive link
+- Groups stale quotes by raiser (column N) and sends each raiser their own digest of the quotes *they* raised, with `afdhal@worq.space` on CC for visibility
+- Quotes with no raiser go to `afdhal@worq.space` only (catches old rows from before column N was always populated)
 - Sends nothing if zero stale quotes (no noise)
 
 To install or reinstall: open `11 Reminders.gs` in the editor, select `setupDailyReminder` from the function dropdown, click Run, authorise the prompt. Re-running deletes any prior trigger first, so it's idempotent.
@@ -372,7 +373,7 @@ The remaining automated emails are all internal/operational:
 |---|---|---|---|
 | Approval-needed notification | every email in `APPROVER_EMAILS` | — | Quote#, customer, amount, drafter, link to dashboard |
 | Draft rejected | drafter (column N) | — | Approver's note |
-| Daily follow-up digest | `afdhal@worq.space` | — | Bulleted list of stale quotes |
+| Daily follow-up digest | each raiser (column N) for their own stale quotes | `afdhal@worq.space` on every digest | Bulleted list of stale quotes; quotes with no raiser fall back to afdhal only |
 
 ---
 
@@ -392,7 +393,7 @@ The remaining automated emails are all internal/operational:
 - [ ] Run `setupScriptProperties()` from the editor — make sure `PDF_TEMPLATE_DOC_ID` is set to a Doc you've prepared with the quotation layout
 - [ ] Run `setupDailyReminder()` from `11 Reminders.gs` (one time, will prompt for new scopes)
 - [ ] In Apps Script editor → **Deploy → New deployment** → type Web app, execute as Me, access "Anyone within worq.space" → copy `/exec` URL
-- [ ] Tracker sheet has columns M (Invoice number), N (Drafted by), O (Rejection note) headers added
+- [ ] Tracker sheet has columns M (Invoice number), N (Raised by), O (Rejection note) headers added — if the sheet still says "Drafted by", rename it to "Raised by" since the column is now populated for every quote, not just drafts
 - [ ] Column K dropdown contains: `Draft / Pending Customer / Pending Bill / Billed / Cancelled`
 - [ ] Sidebar smoke test: menu opens modal, end-to-end Generate works (PDF lands in Drive folder)
 - [ ] Web app smoke test: dashboard loads, drafts, autocomplete, revise, status menu, invoice prompt, Copy link / Download chips all reachable

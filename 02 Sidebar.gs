@@ -154,7 +154,7 @@ function confirmQuotation() {
 
     // Server-side enforcement: non-approvers can't send ≥ RM 10K directly.
     // (Frontend hides Send Now in this case, but enforce here too.)
-    const me = Session.getActiveUser().getEmail();
+    const me = getCurrentUser();
     const gross = parseFloat(payload.quotedPrice) || 0;
     if (!isApprover(me) && gross >= APPROVAL_THRESHOLD_MYR) {
       return {
@@ -177,9 +177,7 @@ function confirmQuotation() {
     const loc = locations.find(function(l) { return l.code === payload.locationCode; });
     if (!loc) throw new Error('Location not found: ' + payload.locationCode);
 
-    const logoDataUri = getLogoBase64();
-    const htmlString = buildHtmlQuotation(payload, loc, logoDataUri);
-    const pdfBlob = convertHtmlToPdf(htmlString, payload.quoteNumber, payload.customerName);
+    const pdfBlob = renderPdfViaDoc(payload, loc);
     const saved = savePdf(pdfBlob, payload.quoteNumber, payload.customerName);
     const driveUrl = saved.url;
 
@@ -355,8 +353,8 @@ function getRecentQuotes() {
 // ── Initial bundle for web app landing page ─────────────────
 function getWebAppData() {
   return {
-    user: Session.getActiveUser().getEmail(),
-    isApprover: isApprover(Session.getActiveUser().getEmail()),
+    user: getCurrentUser(),
+    isApprover: isApprover(getCurrentUser()),
     recentQuotes: getRecentQuotes(),
     today: Utilities.formatDate(new Date(), 'Asia/Kuala_Lumpur', 'dd-MMM-yyyy')
   };
@@ -370,8 +368,8 @@ function getNewQuoteData() {
   if (itg) defaultLocation = 'ITG';
 
   return {
-    user: Session.getActiveUser().getEmail(),
-    isApprover: isApprover(Session.getActiveUser().getEmail()),
+    user: getCurrentUser(),
+    isApprover: isApprover(getCurrentUser()),
     locations: locations,
     defaultLocation: defaultLocation,
     quoteNumber: getNextQuoteNumber(defaultLocation),

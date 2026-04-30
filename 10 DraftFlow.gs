@@ -16,7 +16,7 @@ function saveDraftFromPending() {
     if (!raw) throw new Error('Preview expired. Please generate the preview again.');
 
     const payload = JSON.parse(raw);
-    const drafter = Session.getActiveUser().getEmail();
+    const drafter = getCurrentUser();
 
     // Server-side enforcement: a non-approver cannot send ≥RM 10K, but they
     // CAN always save a draft. (The frontend just hides Send Now in that case.)
@@ -26,9 +26,7 @@ function saveDraftFromPending() {
     const loc = locations.find(function(l) { return l.code === payload.locationCode; });
     if (!loc) throw new Error('Location not found: ' + payload.locationCode);
 
-    const logoDataUri = getLogoBase64();
-    const htmlString = buildHtmlQuotation(payload, loc, logoDataUri);
-    const pdfBlob = convertHtmlToPdf(htmlString, payload.quoteNumber, payload.customerName, DRAFT_PDF_PREFIX);
+    const pdfBlob = renderPdfViaDoc(payload, loc, DRAFT_PDF_PREFIX);
     const saved = savePdf(pdfBlob, payload.quoteNumber, payload.customerName, DRAFT_PDF_PREFIX);
 
     const draftRow = appendTrackerRow(
@@ -57,7 +55,7 @@ function saveDraftFromPending() {
 // real send flow against the saved payload snapshot.
 function approveAndSend(draftRow) {
   try {
-    const me = Session.getActiveUser().getEmail();
+    const me = getCurrentUser();
     if (!isApprover(me)) {
       return { success: false, error: 'Only approvers can send drafts.' };
     }
@@ -87,9 +85,7 @@ function approveAndSend(draftRow) {
     const loc = locations.find(function(l) { return l.code === payload.locationCode; });
     if (!loc) throw new Error('Location not found: ' + payload.locationCode);
 
-    const logoDataUri = getLogoBase64();
-    const htmlString = buildHtmlQuotation(payload, loc, logoDataUri);
-    const pdfBlob = convertHtmlToPdf(htmlString, payload.quoteNumber, payload.customerName);
+    const pdfBlob = renderPdfViaDoc(payload, loc);
     const saved = savePdf(pdfBlob, payload.quoteNumber, payload.customerName);
     const driveUrl = saved.url;
 
@@ -125,7 +121,7 @@ function approveAndSend(draftRow) {
 //    flips the existing draft row to Pending Customer, trashes draft PDF.
 function approveAndSendFromPending(draftRow) {
   try {
-    const me = Session.getActiveUser().getEmail();
+    const me = getCurrentUser();
     if (!isApprover(me)) {
       return { success: false, error: 'Only approvers can send drafts.' };
     }
@@ -156,9 +152,7 @@ function approveAndSendFromPending(draftRow) {
     const loc = locations.find(function(l) { return l.code === payload.locationCode; });
     if (!loc) throw new Error('Location not found: ' + payload.locationCode);
 
-    const logoDataUri = getLogoBase64();
-    const htmlString = buildHtmlQuotation(payload, loc, logoDataUri);
-    const pdfBlob = convertHtmlToPdf(htmlString, payload.quoteNumber, payload.customerName);
+    const pdfBlob = renderPdfViaDoc(payload, loc);
     const saved = savePdf(pdfBlob, payload.quoteNumber, payload.customerName);
     const driveUrl = saved.url;
 
@@ -200,7 +194,7 @@ function approveAndSendFromPending(draftRow) {
 // ── Reject a draft with a note (writes Cancelled, emails drafter) ──
 function rejectDraft(draftRow, note) {
   try {
-    const me = Session.getActiveUser().getEmail();
+    const me = getCurrentUser();
     if (!isApprover(me)) {
       return { success: false, error: 'Only approvers can reject drafts.' };
     }
@@ -251,7 +245,7 @@ function getDraftsAwaitingApproval() {
   const lastRow = sheet.getLastRow();
   if (lastRow <= 1) return [];
 
-  const me = Session.getActiveUser().getEmail();
+  const me = getCurrentUser();
   const isApp = isApprover(me);
   const values = sheet.getRange(2, 1, lastRow - 1, 15).getValues();
   const out = [];
@@ -325,7 +319,7 @@ function getDraftForEdit(draftRow) {
 // _payloads JSON. Trashes the old draft PDF.
 function updateDraftFromPending(draftRow) {
   try {
-    const me = Session.getActiveUser().getEmail();
+    const me = getCurrentUser();
 
     const cache = CacheService.getScriptCache();
     const raw = cache.get('pendingPayload');
@@ -344,9 +338,7 @@ function updateDraftFromPending(draftRow) {
     const loc = locations.find(function(l) { return l.code === payload.locationCode; });
     if (!loc) throw new Error('Location not found: ' + payload.locationCode);
 
-    const logoDataUri = getLogoBase64();
-    const htmlString = buildHtmlQuotation(payload, loc, logoDataUri);
-    const pdfBlob = convertHtmlToPdf(htmlString, payload.quoteNumber, payload.customerName, DRAFT_PDF_PREFIX);
+    const pdfBlob = renderPdfViaDoc(payload, loc, DRAFT_PDF_PREFIX);
     const saved = savePdf(pdfBlob, payload.quoteNumber, payload.customerName, DRAFT_PDF_PREFIX);
 
     // Trash old draft PDF if we know its id

@@ -38,7 +38,7 @@ function logCustomItems(payload, context) {
     if (customs.length === 0) return;
 
     const sheet = getCustomItemsSheet_();
-    const user = Session.getActiveUser().getEmail();
+    const user = getCurrentUser();
     const now = new Date();
     const rows = customs.map(function(it) {
       const qty       = parseFloat(it.qty) || 0;

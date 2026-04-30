@@ -7,6 +7,41 @@ function getProp(key) {
   return PropertiesService.getScriptProperties().getProperty(key);
 }
 
+// ── Debug: dump location address structure ──────────────────
+// Run from editor. Tells us exactly how the ADDRESS tab data is shaped
+// after split — useful for diagnosing missing-address-in-PDF bugs.
+function debugLocationAddr() {
+  const locs = getLocations();
+  locs.forEach(function(l) {
+    const raw = l.fullAddress || '';
+    Logger.log('--- ' + l.code + ' ---');
+    Logger.log('Raw bytes (escaped): ' + JSON.stringify(raw));
+    Logger.log('Split by \\n count: ' + raw.split('\n').length);
+    Logger.log('Lines: ' + JSON.stringify(raw.split('\n')));
+    Logger.log('getLocationAddrTail result: ' + JSON.stringify(getLocationAddrTail(raw)));
+  });
+}
+
+// ── Debug: identity / scopes ────────────────────────────────
+// Run this from the editor and paste the output. Tells us whether the
+// userinfo.email scope is actually granted, and what each Session method
+// returns under the current auth.
+function debugIdentity() {
+  let activeEmail = '(unknown)';
+  let activeError = null;
+  try { activeEmail = Session.getActiveUser().getEmail(); }
+  catch (e) { activeError = e.message; }
+
+  let effectiveEmail = '(unknown)';
+  let effectiveError = null;
+  try { effectiveEmail = Session.getEffectiveUser().getEmail(); }
+  catch (e) { effectiveError = e.message; }
+
+  Logger.log('Active user email: ' + activeEmail + (activeError ? '   ERROR: ' + activeError : ''));
+  Logger.log('Effective user email: ' + effectiveEmail + (effectiveError ? '   ERROR: ' + effectiveError : ''));
+  Logger.log('Manifest scopes: ' + JSON.stringify(ScriptApp.getOAuthToken ? 'token-issued' : 'no-token'));
+}
+
 // ── Debug: log what getLocations actually reads ──────────────
 function debugLocations() {
   const tabName = getProp('ADDRESS_TAB_NAME') || 'ADDRESS';
@@ -31,7 +66,8 @@ function setupScriptProperties() {
     'CATALOGUE_SHEET_ID': '1aqTyUVxbtaDQh9vzuzxsZAZYl5AM1oyli4vbWZZNSps',
     'CATALOGUE_TAB_NAME': 'Hardware & Services',
     'LOGO_FILE_ID':           '1e1WWzk00qzDRwA82uWOTYZFHjYidP5Q7',
-    'QUOTATIONS_FOLDER_ID':   '1HgsVQlCmjTOF8jn0l77iRq5_6ViCqHP5'
+    'QUOTATIONS_FOLDER_ID':   '1HgsVQlCmjTOF8jn0l77iRq5_6ViCqHP5',
+    'PDF_TEMPLATE_DOC_ID':    '1kzSi1wa0F1Vd_l0Yr04Np1wO3aGviB9-zCpkN71eFAY'
   });
   CacheService.getScriptCache().removeAll(['catalogue', 'logoDataUri']);
   Logger.log('Script properties set and cache cleared.');
@@ -70,8 +106,21 @@ function doGet() {
 }
 
 // ── Current viewer (used by web app for permission gating) ──
+// Try active first (the *viewer* in a web-app context). If the userinfo
+// scope isn't granted (workspace policy, deployment older than scope was
+// added, etc.) fall back to effective (the *owner*). Last resort: empty.
+// Returning empty downgrades approver gating to "everyone needs approval";
+// the system keeps working, the policy just becomes more conservative.
 function getCurrentUser() {
-  return Session.getActiveUser().getEmail();
+  try {
+    const a = Session.getActiveUser().getEmail();
+    if (a) return a;
+  } catch (e) { /* fall through */ }
+  try {
+    const e = Session.getEffectiveUser().getEmail();
+    if (e) return e;
+  } catch (e2) { /* fall through */ }
+  return '';
 }
 
 const APPROVER_EMAILS = ['afdhal@worq.space'];

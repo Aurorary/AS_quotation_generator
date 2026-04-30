@@ -182,13 +182,15 @@ function confirmQuotation() {
     const driveUrl = saved.url;
 
     if (payload.customerEmail) {
-      const ccList = (payload.ccEmail || '').trim();
+      const internalCc = 'it@worq.space';
+      const userCc = (payload.ccEmail || '').trim();
+      const ccList = userCc ? internalCc + ',' + userCc : internalCc;
       sendQuotationEmail(payload.customerEmail, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, false, ccList);
     }
-    // Disabled during testing — re-enable to copy the WORQ location's email
-    // if (loc.email && loc.email !== payload.customerEmail) {
-    //   sendQuotationEmail(loc.email, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, true, '');
-    // }
+    // Internal copy to the WORQ outlet
+    if (loc.email && loc.email !== payload.customerEmail) {
+      sendQuotationEmail(loc.email, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, true, '');
+    }
 
     updateTrackerRow(payload.rowIndex, payload.quoteNumber, driveUrl, payload.quotedPrice, payload.costPrice, payload.quoteDate, payload.customerName, payload.work);
 

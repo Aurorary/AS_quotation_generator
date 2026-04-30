@@ -89,8 +89,13 @@ function approveAndSend(draftRow) {
     const saved = savePdf(pdfBlob, payload.quoteNumber, payload.customerName);
     const driveUrl = saved.url;
 
-    const ccList = (payload.ccEmail || '').trim();
+    const internalCc = 'it@worq.space';
+    const userCc = (payload.ccEmail || '').trim();
+    const ccList = userCc ? internalCc + ',' + userCc : internalCc;
     sendQuotationEmail(payload.customerEmail, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, false, ccList);
+    if (loc.email && loc.email !== payload.customerEmail) {
+      sendQuotationEmail(loc.email, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, true, '');
+    }
 
     // Update the draft row → flip status, replace doc link, leave M (drafter) intact
     sheet.getRange(draftRow, 6).setValue(driveUrl);
@@ -156,8 +161,13 @@ function approveAndSendFromPending(draftRow) {
     const saved = savePdf(pdfBlob, payload.quoteNumber, payload.customerName);
     const driveUrl = saved.url;
 
-    const ccList = (payload.ccEmail || '').trim();
+    const internalCc = 'it@worq.space';
+    const userCc = (payload.ccEmail || '').trim();
+    const ccList = userCc ? internalCc + ',' + userCc : internalCc;
     sendQuotationEmail(payload.customerEmail, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, false, ccList);
+    if (loc.email && loc.email !== payload.customerEmail) {
+      sendQuotationEmail(loc.email, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, true, '');
+    }
 
     // Trash old draft PDF (we have its id stashed in the prior payload)
     const prior = loadPayload(payload.quoteNumber);

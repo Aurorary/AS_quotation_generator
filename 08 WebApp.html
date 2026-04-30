@@ -749,14 +749,22 @@ function renderRecentQuotes(quotes) {
   listEl.innerHTML = html;
 }
 
-// Shorten an owner cell so it fits on one line. Emails → local part
-// (before @). Long display names → first word + initial of last word
-// (e.g. "Muhammad Fitri Hazim Muhammad Firdaus" → "Muhammad F."). Hover
-// title still shows the full original value. Returns "—" when empty.
+// Shorten an owner cell so it fits on one line, and prettify it.
+// Emails → local part (before @) split on . / _ / - and proper-cased
+// (e.g. "fitri.firdaus@worq.space" → "Fitri Firdaus"). Long display
+// names → first word + initial of last word (e.g. "Muhammad Fitri
+// Hazim Muhammad Firdaus" → "Muhammad F."). Hover title shows the
+// full original value. Returns "—" when empty.
 function ownerShort(value) {
   if (!value) return '—';
   var at = value.indexOf('@');
-  if (at > 0) return value.slice(0, at);
+  if (at > 0) {
+    return value.slice(0, at)
+      .split(/[._-]+/)
+      .filter(Boolean)
+      .map(function(w) { return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase(); })
+      .join(' ');
+  }
   if (value.length <= 18) return value;
   var parts = value.split(/\s+/).filter(Boolean);
   if (parts.length <= 1) return value.slice(0, 17) + '…';

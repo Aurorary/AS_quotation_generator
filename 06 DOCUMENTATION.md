@@ -347,19 +347,21 @@ Generated PDFs inherit sharing from the parent folder — `setSharing` is intent
 
 ---
 
-## Daily follow-up reminder
+## Weekly follow-up reminder
 
-`11 Reminders.gs` installs a time-driven trigger via `setupDailyReminder`:
+`11 Reminders.gs` installs a time-driven trigger via `setupDailyReminder` (the function name is kept for back-compat with existing triggers; the cadence is weekly):
 
-- Fires daily at 9am Asia/Kuala_Lumpur
-- Scans tracker for `Pending Customer` rows older than 7 days
+- Fires every 7 days at 9am Asia/Kuala_Lumpur
+- Scans tracker for `Pending Customer` rows older than `REMINDER_AGE_DAYS` (currently 7 days)
 - Groups stale quotes by raiser (column N) and sends each raiser their own digest of the quotes *they* raised, with `afdhal@worq.space` on CC for visibility
 - Quotes with no raiser go to `afdhal@worq.space` only (catches old rows from before column N was always populated)
 - Sends nothing if zero stale quotes (no noise)
 
-To install or reinstall: open `11 Reminders.gs` in the editor, select `setupDailyReminder` from the function dropdown, click Run, authorise the prompt. Re-running deletes any prior trigger first, so it's idempotent.
+The weekly cadence is set by `REMINDER_INTERVAL_DAYS = 7`. The age filter is `REMINDER_AGE_DAYS = 7` — both are independent, so a future tweak (e.g. nudge weekly but only after 14 days of silence) is a one-line change.
 
-To test ad-hoc: run `testDailyReminderNow` from the editor.
+To install or reinstall: open `11 Reminders.gs` in the editor, select `setupDailyReminder` from the function dropdown, click Run, authorise the prompt. Re-running deletes any prior trigger first (including the old daily one, if you ran the previous version), so it's idempotent.
+
+To test ad-hoc: run `testDailyReminderNow` from the editor — fires the digest immediately ignoring schedule.
 
 ---
 
@@ -373,7 +375,7 @@ The remaining automated emails are all internal/operational:
 |---|---|---|---|
 | Approval-needed notification | every email in `APPROVER_EMAILS` | — | Quote#, customer, amount, drafter, link to dashboard |
 | Draft rejected | drafter (column N) | — | Approver's note |
-| Daily follow-up digest | each raiser (column N) for their own stale quotes | `afdhal@worq.space` on every digest | Bulleted list of stale quotes; quotes with no raiser fall back to afdhal only |
+| Weekly follow-up digest | each raiser (column N) for their own stale quotes | `afdhal@worq.space` on every digest | Bulleted list of stale quotes; quotes with no raiser fall back to afdhal only |
 
 ---
 

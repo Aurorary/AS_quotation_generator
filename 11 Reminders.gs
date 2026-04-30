@@ -1,21 +1,25 @@
 // ============================================================
-// Reminders.gs — Daily follow-up digest for stale quotes
+// Reminders.gs — Weekly follow-up digest for stale quotes
 // ============================================================
 // Scheduled by an installable time-driven trigger on
 // `dailyFollowUpReminder` (run setupDailyReminder once to install).
+// Runs every 7 days so raisers get a single weekly nudge rather than
+// daily noise; the age threshold below filters out anything younger.
 
 const REMINDER_HOUR = 9;                           // 9am
 const REMINDER_TIMEZONE = 'Asia/Kuala_Lumpur';
 const REMINDER_AGE_DAYS = 7;
+const REMINDER_INTERVAL_DAYS = 7;
 // Each raiser receives a digest of THEIR stale quotes; afdhal is CC'd on
 // every digest for visibility. Quotes with a missing raiser fall back to
 // REMINDER_FALLBACK only (afdhal handles them directly).
 const REMINDER_CC = 'afdhal@worq.space';
 const REMINDER_FALLBACK = 'afdhal@worq.space';
 
-// ── Install the daily trigger (run once) ─────────────────────
+// ── Install the weekly trigger (run once) ────────────────────
+// Re-running deletes the prior trigger first, so it's idempotent — and
+// will also clear any old daily trigger from the previous cadence.
 function setupDailyReminder() {
-  // Remove any existing triggers for this function so we don't double up
   ScriptApp.getProjectTriggers().forEach(function(t) {
     if (t.getHandlerFunction() === 'dailyFollowUpReminder') {
       ScriptApp.deleteTrigger(t);
@@ -25,9 +29,10 @@ function setupDailyReminder() {
     .timeBased()
     .atHour(REMINDER_HOUR)
     .inTimezone(REMINDER_TIMEZONE)
-    .everyDays(1)
+    .everyDays(REMINDER_INTERVAL_DAYS)
     .create();
-  Logger.log('Daily reminder trigger installed for ' + REMINDER_HOUR + ':00 ' + REMINDER_TIMEZONE);
+  Logger.log('Reminder trigger installed: every ' + REMINDER_INTERVAL_DAYS +
+             ' days at ' + REMINDER_HOUR + ':00 ' + REMINDER_TIMEZONE);
 }
 
 // ── Trigger entry point ──────────────────────────────────────

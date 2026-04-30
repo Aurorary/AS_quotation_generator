@@ -2,7 +2,9 @@
 
 ## Overview
 
-Automates the WORQ KL quotation workflow on Google Apps Script (clasp-managed). Two parallel UIs share the same backend:
+Automates the WORQ KL quotation workflow on Google Apps Script (clasp-managed). The tool is **generate-only** — it renders the PDF, saves it to Drive, writes the tracker row, and surfaces a Drive link / Copy / Download chip on the success toast. The team forwards or attaches the PDF themselves into the existing customer email thread; nothing is auto-emailed to the customer or outlet. (See *Obsolete* at the bottom for the prior auto-email flow.)
+
+Two parallel UIs share the same backend:
 
 - **In-sheet sidebar** — modal dialog opened from the Tracker spreadsheet menu, original entry point.
 - **Standalone web app** — full-page UI at `script.google.com/.../exec`, intended for daily use including mobile, supports drafts, approvals, customer autocomplete, status lifecycle, and a daily follow-up digest.
@@ -26,14 +28,16 @@ Both surfaces produce identical PDFs and write to the same tracker, so a quote c
        │  Backend (.gs files)        │
        │  Sidebar.gs, PdfGenerator,  │
        │  DriveManager, PayloadStore,│
-       │  DraftFlow, Reminders       │
+       │  DraftFlow, Reminders,      │
+       │  CustomItemsLog, DocPdf     │
        └────────────┬────────────────┘
                     ▼
        ┌─────────────────────────────┐
        │  Tracker spreadsheet        │
-       │  ─ NEW COMBINED  (rows)     │
-       │  ─ ADDRESS       (outlets)  │
-       │  ─ _payloads     (hidden)   │
+       │  ─ NEW COMBINED   (rows)    │
+       │  ─ ADDRESS        (outlets) │
+       │  ─ _payloads      (hidden)  │
+       │  ─ _custom_items  (hidden)  │
        └─────────────────────────────┘
 ```
 
@@ -44,8 +48,9 @@ Both surfaces produce identical PDFs and write to the same tracker, so a quote c
 - **Google Apps Script** (V8 runtime), bound to the Tracker spreadsheet
 - **clasp** for local development and `clasp push -f` deploys
 - **HTML Service** for both UIs (sidebar modal + web app full page)
-- **DriveApp** for HTML → PDF conversion and folder writes
-- **GmailApp** for customer emails, draft notifications, rejection notes, follow-up digest
+- **DocumentApp** for PDF rendering — a Google Docs template is copied per quote, placeholders are replaced, items table rows are injected, the doc is exported to PDF and the temp doc trashed (see [13 DocPdfRenderer.gs](13%20DocPdfRenderer.gs))
+- **DriveApp** for the saved PDF, draft cleanup, and the `getPdfBlobAsBase64` endpoint that powers the Download chip
+- **GmailApp** for the three remaining internal emails (draft notifications, rejection notes, follow-up digest) — there are no customer-facing emails
 - **CacheService** for catalogue (10 min), logo (6 h), customer-history datalist (5 min), pending preview payload (10 min)
 - **Time-driven trigger** for the daily 9am follow-up digest
 
@@ -58,7 +63,8 @@ Both surfaces produce identical PDFs and write to the same tracker, so a quote c
 | **Quotation Tracker** | `1DbX1hTx8pHoqzyRZ5AuikECJf2CSC2f__T8k2htZtG0` | Spreadsheet — `NEW COMBINED`, `ADDRESS`, hidden `_payloads` |
 | **Price Catalogue** | `1aqTyUVxbtaDQh9vzuzxsZAZYl5AM1oyli4vbWZZNSps` | Separate sheet, `Hardware & Services` tab |
 | **WORQ logo** | `1e1WWzk00qzDRwA82uWOTYZFHjYidP5Q7` | Drive file, embedded as base64 in PDF |
-| **Quotations folder** | `1HgsVQlCmjTOF8jn0l77iRq5_6ViCqHP5` | Drive folder for sent and draft PDFs |
+| **Quotations folder** | `1HgsVQlCmjTOF8jn0l77iRq5_6ViCqHP5` | Drive folder for generated and draft PDFs |
+| **PDF template Doc** | (set in Script Properties) | Google Doc copied per quote and exported to PDF |
 
 All IDs are stored as Script Properties — nothing hardcoded.
 
@@ -74,15 +80,19 @@ Run `setupScriptProperties()` once from the Apps Script editor.
 | `CATALOGUE_TAB_NAME` | `Hardware & Services` |
 | `QUOTATIONS_FOLDER_ID` | `1HgsVQlCmjTOF8jn0l77iRq5_6ViCqHP5` |
 | `LOGO_FILE_ID` | `1e1WWzk00qzDRwA82uWOTYZFHjYidP5Q7` |
+| `PDF_TEMPLATE_DOC_ID` | (Doc id of the quotation template — see PDF rendering section) |
 
 ### OAuth scopes (manifest)
 
 ```
-spreadsheets, drive, gmail.send, script.container.ui,
-script.scriptapp, userinfo.email
+spreadsheets, drive, documents, gmail.send,
+script.container.ui, script.scriptapp, userinfo.email
 ```
 
-`script.scriptapp` is needed by `setupDailyReminder` (it manages triggers). `userinfo.email` is needed by `Session.getActiveUser().getEmail()` for permission gating.
+- `documents` powers the Doc-template-based PDF renderer
+- `script.scriptapp` is needed by `setupDailyReminder` (it manages triggers)
+- `userinfo.email` is needed by `Session.getActiveUser().getEmail()` for permission gating
+- `gmail.send` is still required for the three internal emails (draft notification, rejection note, daily digest); no email goes to the customer
 
 ---
 
@@ -103,11 +113,11 @@ script.scriptapp, userinfo.email
 │                            getRecentQuotes, getWebAppData, getNewQuoteData,
 │                            appendTrackerRow / updateTrackerRow
 ├── 03 Sidebar.html          In-sheet modal UI
-├── 04 PdfGenerator.gs       buildHtmlQuotation, convertHtmlToPdf,
-│                            buildPdfFileName, getLogoBase64
-├── 05 DriveManager.gs       savePdf
+├── 04 PdfGenerator.gs       buildHtmlQuotation (preview only), getLogoBase64,
+│                            buildPdfFileName, formatMyr
+├── 05 DriveManager.gs       savePdf, getPdfBlobAsBase64 (Download chip)
 ├── 06 DOCUMENTATION.md      this file
-├── 07 quotation_template.html  PDF layout (HtmlTemplate)
+├── 07 quotation_template.html  HTML used for the in-app preview iframe
 ├── 08 WebApp.html           Standalone full-page UI (landing, new quote,
 │                            revise picker, review draft)
 ├── 09 PayloadStore.gs       Hidden _payloads tab manager: savePayload,
@@ -115,11 +125,17 @@ script.scriptapp, userinfo.email
 │                            getCustomerHistory, getCustomerProfile,
 │                            getRevisionData, buildRevisionNumber
 ├── 10 DraftFlow.gs          saveDraftFromPending, approveAndSend,
-│                            rejectDraft, getDraftsAwaitingApproval,
-│                            getDraftForEdit, updateDraftFromPending,
-│                            notifyApproversOfDraft
-└── 11 Reminders.gs          setupDailyReminder, dailyFollowUpReminder,
-                             findStalePendingCustomerQuotes
+│                            approveAndSendFromPending, rejectDraft,
+│                            getDraftsAwaitingApproval, getDraftForEdit,
+│                            updateDraftFromPending, notifyApproversOfDraft
+├── 11 Reminders.gs          setupDailyReminder, dailyFollowUpReminder,
+│                            findStalePendingCustomerQuotes
+├── 12 CustomItemsLog.gs     Hidden _custom_items tab — appends rows when
+│                            a custom-priced item is used at status
+│                            Pending Customer / Pending Bill / Billed
+└── 13 DocPdfRenderer.gs     renderPdfViaDoc — copies the PDF template Doc,
+                             fills placeholders + items table, exports PDF,
+                             trashes the temp Doc
 ```
 
 ---
@@ -167,9 +183,13 @@ Columns: A=quoteNumber, B=parentQuoteNumber, C=timestamp, D=payloadJson.
 - `loadPayload(quoteNumber)` returns the most recent row matching that quote number (case-sensitive)
 - `getQuoteHistory(limit)` joins payloads with tracker metadata for the Revise picker
 - `getCustomerHistory()` returns a deduped list of past customer names (datalist source)
-- `getCustomerProfile(name)` returns all distinct values per contact field (email/CC/address) seen for that customer, newest first
+- `getCustomerProfile(name)` returns all distinct values per contact field seen for that customer, newest first — currently only `customerAddress` (email/CC fields were removed when auto-emails were dropped)
 
 The tab stays hidden in normal use; right-click → Show all sheets if you need to inspect.
+
+### Hidden `_custom_items` tab
+
+Audit log for one-off / monthly custom items. `12 CustomItemsLog.gs` appends a row whenever a custom-priced item appears in a quote whose status is `Pending Customer`, `Pending Bill`, or `Billed`. Drafts are intentionally not logged — the log is meant to capture items the team actually billed for, so the catalogue can be updated when the same custom item recurs.
 
 ---
 
@@ -212,17 +232,17 @@ The running counter scans column B for the highest trailing number across all lo
 
 1. Open the tracker spreadsheet → menu `Quotation Generator → Generate Quotation`
 2. Modal dialog (1000×750):
-   - Pick location, customer details, work
+   - Pick location, customer details (name, work, address — no email/CC fields)
    - Search catalogue, add items, adjust qty / unit price
    - Optionally tick "Is this a revision?" and edit the rev number
 3. Click **Generate Quotation**
    - Server builds HTML, returns it; preview renders inside the dialog iframe
    - Pending payload cached for 10 min
-4. Click **Confirm & Send**
-   - PDF generated, saved to Drive folder
-   - Email sent to customer (PDF attached); CC included if provided
+4. Click **Generate**
+   - PDF rendered via the Doc template, saved to the Drive folder
    - Tracker row appended with status `Pending Customer`
-   - Payload upserted to `_payloads`
+   - Payload saved to `_payloads`
+   - **No email is sent** — copy the Drive link and attach the PDF into the existing customer thread yourself
 
 ---
 
@@ -232,20 +252,26 @@ URL is the deployment's `/exec` URL. Access is `Anyone within worq.space`. Execu
 
 ### Landing dashboard
 
-- **+ New Quote** card — fresh quotation, threshold-aware send/draft buttons
+- **+ New Quote** card — fresh quotation, threshold-aware Generate / Save Draft buttons
 - **↻ Revise Quote** card — picker over past quotes (excludes Draft and Billed)
 - **Drafts awaiting your approval** — visible only when 1+ drafts exist; approvers see all drafts, drafters see only their own
-- **Recent quotes** — last 30 days, hides `Billed` and `Cancelled` rows (worklist mode)
+- **Open quotes** — worklist of `Pending Customer` and `Pending Bill` rows (hides `Billed` and `Cancelled`), oldest first, with age badges
 
-### Recent quotes row controls
+### Open-quotes row controls
 
-Each row has `[PDF] [⋯]` plus, on `Pending Bill` rows, a fast-path `[+ Invoice #]`. The `⋯` menu offers mark-as-X actions for every status that isn't current. `Mark Billed` always prompts for an invoice number (regex `^C-\d+-\d+$`) and writes column M atomically with status K.
+Each row has `[PDF] [copy] [↓] [⋯]` plus, on `Pending Bill` rows, a fast-path `[+ Invoice #]`.
+
+- `PDF` — opens the Drive viewer in a new tab
+- `copy` — copies the Drive link to the clipboard so it can be pasted into an email
+- `↓` — calls `getPdfBlobAsBase64` and triggers a real browser download (drag-droppable into Gmail)
+- `⋯` menu offers mark-as-X actions for every status that isn't current
+- `Mark Billed` always prompts for an invoice number (regex `^C-\d+-\d+$`) and writes column M atomically with status K
 
 ### New Quote view
 
 - Customer name field uses an HTML `<datalist>` populated from `getCustomerHistory`
 - Picking a known customer triggers `getCustomerProfile`:
-  - Single historical value per field → autofill it (and remember the autofill so a later customer change can replace it without clobbering hand-typed values)
+  - Single historical value for `customerAddress` → autofill it (and remember the autofill so a later customer change can replace it without clobbering hand-typed values)
   - Multiple distinct values → show clickable hint pills under the field; click to fill
 - Margin row appears under Quoted Total once both quoted and cost are non-zero; orange `LOW MARGIN` chip when margin < 20% (soft warning, doesn't block)
 
@@ -253,26 +279,26 @@ Each row has `[PDF] [⋯]` plus, on `Pending Bill` rows, a fast-path `[+ Invoice
 
 - `← Back & Edit` (always present)
 - `Save as Draft` (always available)
-- `Send Now` — hidden when:
+- `Generate` — hidden when:
   - Current user is non-approver and gross ≥ RM 10,000, or
   - This is a revision (revisions always go through approval)
   - In both cases, an explanatory yellow notice appears
 
-`confirmQuotation` re-checks the threshold server-side so the rule can't be bypassed by editing the page.
+`confirmQuotation` re-checks the threshold server-side so the rule can't be bypassed by editing the page. Success toast shows `Open PDF · Copy link · Download` chips.
 
 ### Revise picker
 
-Searchable list of past quotes (excludes Draft and Billed; Cancelled stays so a rejected proposal can be revived). Click `Revise →` to load the New Quote form with everything pre-filled and the quote number bumped (`… rev1` → `… rev2`). Cross-payload backfill: any contact field empty in the original payload is filled from the customer's other quotes when there's exactly one historical value, or surfaced as hints if multiple.
+Searchable list of past quotes (excludes Draft and Billed; Cancelled stays so a rejected proposal can be revived). Click `Revise →` to load the New Quote form with everything pre-filled and the quote number bumped (`… rev1` → `… rev2`). Cross-payload backfill: if the address is empty in the original payload it's filled from the customer's other quotes when there's exactly one historical value, or surfaced as hint pills if multiple.
 
 ### Review Draft view (approvers)
 
 Approvers click `Review →` on a draft row → split-pane with the draft PDF embedded via Drive's `/preview` URL and three actions:
 
 - **Reject with note** — prompts for reason → status `Cancelled`, note in column O, drafter emailed
-- **Edit** — loads the form prefilled (banner says "Editing draft … (drafted by …)"), buttons become `Update Draft` / `Approve & Send`
-- **Approve & Send** — atomic: re-renders PDF without the `[DRAFT]` prefix, sends to customer, flips draft row to `Pending Customer`, trashes the draft PDF
+- **Edit** — loads the form prefilled (banner says "Editing draft … (drafted by …)"), buttons become `Update Draft` / `Approve`
+- **Approve** — atomic: re-renders the PDF without the `[DRAFT]` prefix, flips the draft row to `Pending Customer`, trashes the draft PDF. No customer email is sent — copy or download the PDF from the success toast and forward it yourself.
 
-Non-approvers clicking `Edit →` on their own draft skip the review view and go straight into the editable form; they see only `Update Draft` (no send).
+Non-approvers clicking `Edit →` on their own draft skip the review view and go straight into the editable form; they see only `Update Draft` (no Approve button). They can iterate on their draft any number of times until an approver acts on it. For amounts under RM 10K they can also skip the draft loop entirely and click Generate directly.
 
 ### Approval threshold
 
@@ -283,20 +309,31 @@ APPROVAL_THRESHOLD_MYR  = 10000
 
 Rules:
 
-| Who | Quote amount | Direct send | Save draft |
+| Who | Quote amount | Generate directly | Save / update draft |
 |---|---|---|---|
 | Approver | any | ✅ | ✅ |
 | Team member | < RM 10K | ✅ | ✅ |
 | Team member | ≥ RM 10K | ❌ | ✅ |
 | Anyone | revising | ❌ | ✅ |
 
-Drafts always notify all approvers via email. Approval is atomic — clicking Approve & Send fires the same send flow as a direct send, using the saved payload snapshot.
+Drafts always notify all approvers via email. Approval is atomic — clicking Approve renders the final PDF using the saved payload snapshot, replaces the `[DRAFT]` PDF in Drive, and flips the row to `Pending Customer`.
 
 ---
 
-## PDF layout
+## PDF rendering
 
-Same template, with a `[DRAFT] ` filename prefix while in draft state. The prefix is dropped when the draft is approved and a fresh PDF is generated.
+PDFs are rendered via a Google Docs template (`PDF_TEMPLATE_DOC_ID`), not HTML→PDF. `13 DocPdfRenderer.gs` does:
+
+1. `DriveApp.makeCopy` of the template into the quotations folder
+2. `DocumentApp.openById` on the copy
+3. Replace simple text placeholders (`{{quoteDate}}`, `{{quoteNumber}}`, `{{customerName}}`, etc.)
+4. Multi-line placeholders (`{{customerAddr}}`, `{{locationAddr}}`) are filled by capturing the host paragraph, replacing the marker with line 0, and inserting line 1..N as sibling paragraphs that copy alignment/text attributes
+5. `fillItemsTable_` walks the items and injects rows into the template's items table — categories become bold underlined headers, sub-rows are letter-prefixed (skipping prefixing if the description already starts with `a)`), `[One-Off]` pills sit inline with the title
+6. Export Doc → PDF blob → trash the temp Doc
+
+Why a Doc template instead of an HtmlTemplate: Drive's HTML-to-PDF was visually inconsistent across runs and didn't honor styles reliably. A Doc gives WYSIWYG control — to change layout, edit the Doc.
+
+A draft state adds a `[DRAFT] ` filename prefix; the prefix is dropped on approval when a fresh PDF is generated.
 
 Filename format: `WORQ-{LOCATION}-{YEAR}-{N} ({Customer Name}).pdf`
 
@@ -304,7 +341,9 @@ Filename format: `WORQ-{LOCATION}-{YEAR}-{N} ({Customer Name}).pdf`
 - Customer name has filename-illegal chars stripped (`\ / : * ? " < > |`)
 - Customer name is omitted if blank
 
-Existing PDFs are inherited from the parent folder's sharing settings — `setSharing` is intentionally not called (it fails when the executing identity isn't the file owner).
+Generated PDFs inherit sharing from the parent folder — `setSharing` is intentionally not called (it fails when the executing identity isn't the file owner).
+
+`07 quotation_template.html` is still kept around as the in-app preview iframe source — it's *not* used for the saved PDF.
 
 ---
 
@@ -350,13 +389,13 @@ The remaining automated emails are all internal/operational:
 - [ ] `npm install -g @google/clasp` and `clasp login`
 - [ ] Apps Script API enabled at script.google.com/home/usersettings
 - [ ] `.clasp.json` has correct `scriptId` and `parentId`
-- [ ] Run `setupScriptProperties()` from the editor
+- [ ] Run `setupScriptProperties()` from the editor — make sure `PDF_TEMPLATE_DOC_ID` is set to a Doc you've prepared with the quotation layout
 - [ ] Run `setupDailyReminder()` from `11 Reminders.gs` (one time, will prompt for new scopes)
 - [ ] In Apps Script editor → **Deploy → New deployment** → type Web app, execute as Me, access "Anyone within worq.space" → copy `/exec` URL
 - [ ] Tracker sheet has columns M (Invoice number), N (Drafted by), O (Rejection note) headers added
 - [ ] Column K dropdown contains: `Draft / Pending Customer / Pending Bill / Billed / Cancelled`
-- [ ] Sidebar smoke test: menu opens modal, end-to-end send works
-- [ ] Web app smoke test: dashboard loads, drafts, autocomplete, revise, status menu, invoice prompt all reachable
+- [ ] Sidebar smoke test: menu opens modal, end-to-end Generate works (PDF lands in Drive folder)
+- [ ] Web app smoke test: dashboard loads, drafts, autocomplete, revise, status menu, invoice prompt, Copy link / Download chips all reachable
 - [ ] Email digest test: run `testDailyReminderNow` after creating a >7-day stale `Pending Customer` row (or temporarily lower `REMINDER_AGE_DAYS` to 0)
 
 ---
@@ -387,4 +426,39 @@ The current capability set was built in four phases on top of the original sideb
   - D3: inline `+ Invoice #` fast-path on `Pending Bill` rows, column-mapping fix
   - D4: daily 9am follow-up digest, margin guardrail at 20%, dashboard / revise status filters
 
+Post-phase changes:
+
+- **Doc-template PDF renderer** — replaced flaky HTML→PDF with `13 DocPdfRenderer.gs`
+- **Custom items log** — `12 CustomItemsLog.gs` records custom-priced items at meaningful status transitions
+- **Generate-only mode** — auto-emails to customer and outlet removed; team forwards the PDF themselves. Customer email + CC fields removed from both UIs. `Send Now` → `Generate`, `Approve & Send` → `Approve`. Success toast and dashboard rows surface Copy link / Download chips for fast attaching into existing email threads.
+
 The in-sheet sidebar continues to work alongside the web app for any flow you prefer to keep "inside" the spreadsheet.
+
+---
+
+## Obsolete
+
+Older behaviors that have been removed. Kept here for context if you encounter older quotes / commits / docs that reference them.
+
+### Auto-email send flow (removed)
+
+Up until early 2026, clicking the equivalent of `Generate` (then called `Send Now` / `Confirm & Send` / `Approve & Send`) would:
+
+- Email the customer at `payload.customerEmail` with the PDF attached, optionally CC'ing `payload.ccEmail`
+- CC `it@worq.space` as an internal audit copy
+- Email the outlet (`location.email`) a separate "internal copy" message with the Drive link in the body
+- Validate `customerEmail` and `ccEmail` server-side via `isValidEmail` / `isValidCcList` before rendering the PDF
+
+The form had **Email (for PDF delivery) \*** and **CC Email (optional)** fields, both required to reach a valid send. The `sendQuotationEmail(email, customerName, quoteNumber, pdfBlob, driveUrl, isCc, ccEmail)` helper in `02 Sidebar.gs` handled both customer and internal-copy bodies.
+
+Why it was removed: the team usually had an existing email thread with the customer and wanted the quotation attached *inside* that thread, not as a fresh outbound message. The auto-send was creating duplicate threads and cluttering the team's inbox without adding value. After the change, the same workflow is one extra step (copy/download the PDF, paste into the existing thread), but the thread stays in the right place.
+
+`isValidEmail`, `isValidCcList`, `EMAIL_PATTERN`, `sendQuotationEmail`, and the customer/CC fields and their datalist-hint plumbing are all gone from the codebase. `getCustomerProfile` no longer surfaces past emails — only past addresses.
+
+### HTML→PDF rendering (replaced)
+
+`04 PdfGenerator.gs` originally produced the saved PDF via `buildHtmlQuotation` + `convertHtmlToPdf` (Drive's HTML-to-PDF endpoint). Output quality was inconsistent — line wrapping, table cell sizing, and font rendering varied between runs. Replaced by the Doc-template renderer (see PDF rendering section). The HTML template is still used for the in-app preview iframe so users can see something approximating the final layout before they click Generate.
+
+### Internal CC to `it@worq.space` (removed)
+
+Was re-enabled briefly (commit `3cdd6b7`) as part of the auto-email flow, then removed entirely when generate-only mode landed.

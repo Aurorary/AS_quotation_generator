@@ -273,8 +273,20 @@ function fillRowSpec_(row, spec) {
   const c1 = row.getCell(1);
   const c2 = row.getCell(2);
   const c3 = row.getCell(3);
-  [c0, c1, c2, c3].forEach(clearCell_);
+  const cells = [c0, c1, c2, c3];
+  cells.forEach(clearCell_);
 
+  try {
+    fillRowSpecInner_(row, spec, c0, c1, c2, c3);
+  } finally {
+    // Strip the leading empty paragraphs that clearCell_ left behind, so
+    // each cell's content sits flush at the top with no vertical padding
+    // from blank prelude lines.
+    cells.forEach(trimCellLeadingEmpty_);
+  }
+}
+
+function fillRowSpecInner_(row, spec, c0, c1, c2, c3) {
   if (spec.kind === 'category') {
     const p = c0.appendParagraph(spec.label);
     try { p.setHeading(DocumentApp.ParagraphHeading.NORMAL); } catch (e) {}
@@ -375,10 +387,28 @@ function fillRowSpec_(row, spec) {
 // ── Cell helpers ────────────────────────────────────────────────────
 
 function clearCell_(cell) {
+  // Clear the contents of every existing paragraph in the cell. We can't
+  // remove all paragraphs (a cell must contain at least one), but the first
+  // existing paragraph becomes the prelude that our appendParagraph calls
+  // sit on top of. Trimming happens after content insertion via trimCell_.
   const n = cell.getNumChildren();
   for (let i = 0; i < n; i++) {
     const child = cell.getChild(i);
     if (child.getType() === DocumentApp.ElementType.PARAGRAPH) child.clear();
+  }
+}
+
+// Remove the leading empty paragraph(s) left behind from clearCell_, so the
+// content paragraphs we just appended sit at the top of the cell with no
+// blank lead-in eating vertical space. Always keeps at least one paragraph
+// (cells require it) — falls back to the last paragraph if nothing else
+// remains.
+function trimCellLeadingEmpty_(cell) {
+  while (cell.getNumChildren() > 1) {
+    const first = cell.getChild(0);
+    if (first.getType() !== DocumentApp.ElementType.PARAGRAPH) break;
+    if ((first.getText() || '').length > 0) break;
+    try { cell.removeChild(first); } catch (e) { break; }
   }
 }
 

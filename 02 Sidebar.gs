@@ -143,7 +143,9 @@ function previewQuotation(payload) {
   }
 }
 
-// ── Step 2: Confirm — save PDF, send email, update tracker ───
+// ── Step 2: Confirm — save PDF, update tracker (no auto-email) ───
+// The team forwards the PDF themselves into the existing customer thread,
+// so we generate only — no emails sent to customer, outlet, or internal CC.
 function confirmQuotation() {
   try {
     const cache = CacheService.getScriptCache();
@@ -152,8 +154,7 @@ function confirmQuotation() {
 
     const payload = JSON.parse(raw);
 
-    // Server-side enforcement: non-approvers can't send ≥ RM 10K directly.
-    // (Frontend hides Send Now in this case, but enforce here too.)
+    // Server-side enforcement: non-approvers can't generate ≥ RM 10K directly.
     const me = getCurrentUser();
     const gross = parseFloat(payload.quotedPrice) || 0;
     if (!isApprover(me) && gross >= APPROVAL_THRESHOLD_MYR) {
@@ -161,14 +162,6 @@ function confirmQuotation() {
         success: false,
         error: 'Quotes ≥ RM ' + APPROVAL_THRESHOLD_MYR.toLocaleString() + ' require approval. Save as draft instead.'
       };
-    }
-
-    // Fail fast on bad email — no point rendering PDFs we can't deliver
-    if (!isValidEmail(payload.customerEmail)) {
-      return { success: false, error: 'Customer email is invalid: "' + (payload.customerEmail || '') + '"' };
-    }
-    if (!isValidCcList(payload.ccEmail)) {
-      return { success: false, error: 'CC email is invalid: "' + (payload.ccEmail || '') + '"' };
     }
 
     cache.remove('pendingPayload');
@@ -181,66 +174,18 @@ function confirmQuotation() {
     const saved = savePdf(pdfBlob, payload.quoteNumber, payload.customerName);
     const driveUrl = saved.url;
 
-    if (payload.customerEmail) {
-      const internalCc = 'it@worq.space';
-      const userCc = (payload.ccEmail || '').trim();
-      const ccList = userCc ? internalCc + ',' + userCc : internalCc;
-      sendQuotationEmail(payload.customerEmail, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, false, ccList);
-    }
-    // Internal copy to the WORQ outlet
-    if (loc.email && loc.email !== payload.customerEmail) {
-      sendQuotationEmail(loc.email, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, true, '');
-    }
-
     updateTrackerRow(payload.rowIndex, payload.quoteNumber, driveUrl, payload.quotedPrice, payload.costPrice, payload.quoteDate, payload.customerName, payload.work);
 
     // Persist payload for future revisions
     savePayload(payload.quoteNumber, payload.parentQuoteNumber || '', payload);
     logCustomItems(payload, 'Pending Customer');
 
-    return { success: true, pdfUrl: driveUrl };
+    return { success: true, pdfUrl: driveUrl, pdfId: saved.id };
 
   } catch (e) {
     console.error('confirmQuotation error:', e.message, e.stack);
     return { success: false, error: e.message };
   }
-}
-
-// ── Send email with PDF attachment ──────────────────────────
-function sendQuotationEmail(email, customerName, quoteNumber, pdfBlob, driveUrl, isCc, ccEmail) {
-  const subject = 'Quotation ' + quoteNumber + ' — WORQ';
-  const body = isCc
-    ? 'Please find attached the quotation ' + quoteNumber + ' for ' + customerName + '.\n\nDrive link: ' + driveUrl
-    : 'Dear ' + customerName + ',\n\nPlease find attached your quotation ' + quoteNumber + '.\n\nShould you have any questions, feel free to reach out.\n\nBest regards,\nWORQ Team';
-
-  const opts = {
-    attachments: [pdfBlob.setName(buildPdfFileName(quoteNumber, customerName))],
-    name: 'WORQ Quotation'
-  };
-  if (ccEmail) opts.cc = ccEmail;
-
-  GmailApp.sendEmail(email, subject, body, opts);
-}
-
-// ── Email format guard ────────────────────────────────────────
-// Lightweight RFC-5321-ish check — catches the common mistakes (missing @,
-// stray spaces, "test" with no domain). Real validation is GmailApp's job;
-// this just fails fast before we render PDFs and write tracker rows.
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function isValidEmail(s) {
-  return EMAIL_PATTERN.test((s || '').toString().trim());
-}
-
-// Validates a comma- or semicolon-separated CC field; empty string is OK.
-function isValidCcList(s) {
-  const trimmed = (s || '').toString().trim();
-  if (!trimmed) return true;
-  const parts = trimmed.split(/[,;]/).map(function(p) { return p.trim(); }).filter(Boolean);
-  for (let i = 0; i < parts.length; i++) {
-    if (!EMAIL_PATTERN.test(parts[i])) return false;
-  }
-  return true;
 }
 
 // ── Allowed status values (column K dropdown) ────────────────

@@ -151,8 +151,6 @@ function getRevisionData(quoteNumber) {
   // distinct values (e.g. several addresses) are surfaced as hints in the UI.
   const profile = getCustomerProfile(payload.customerName);
   if (profile) {
-    if (!payload.customerEmail   && profile.customerEmail.length   === 1) payload.customerEmail   = profile.customerEmail[0];
-    if (!payload.ccEmail         && profile.ccEmail.length         === 1) payload.ccEmail         = profile.ccEmail[0];
     if (!payload.customerAddress && profile.customerAddress.length === 1) payload.customerAddress = profile.customerAddress[0];
   }
   return {
@@ -206,9 +204,9 @@ function getCustomerProfile(customerName) {
   if (lastRow <= 1) return null;
 
   const values = sheet.getRange(2, 1, lastRow - 1, 4).getValues();
-  const fields = ['customerEmail', 'ccEmail', 'customerAddress'];
-  const seen = { customerEmail: {}, ccEmail: {}, customerAddress: {} };
-  const out  = { customerEmail: [], ccEmail: [], customerAddress: [] };
+  const fields = ['customerAddress'];
+  const seen = { customerAddress: {} };
+  const out  = { customerAddress: [] };
   let found = false;
 
   for (let i = values.length - 1; i >= 0; i--) {

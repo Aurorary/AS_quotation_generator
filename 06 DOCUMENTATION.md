@@ -99,7 +99,7 @@ script.scriptapp, userinfo.email
 │                            APPROVER_EMAILS allowlist, isApprover
 ├── 02 Sidebar.gs            getInitialData, getCatalogueItems,
 │                            previewQuotation, confirmQuotation,
-│                            sendQuotationEmail, setQuoteStatus, markBilled,
+│                            setQuoteStatus, markBilled,
 │                            getRecentQuotes, getWebAppData, getNewQuoteData,
 │                            appendTrackerRow / updateTrackerRow
 ├── 03 Sidebar.html          In-sheet modal UI
@@ -325,14 +325,15 @@ To test ad-hoc: run `testDailyReminderNow` from the editor.
 
 ## Email behaviour
 
+The quotation generator no longer auto-emails the customer. Per team feedback, quotations are usually attached to an existing email thread with the customer, so generating a new outbound thread was unwanted. Instead, clicking **Generate** (or **Approve** on a draft) renders the PDF, saves it to Drive, writes the tracker row, and returns the Drive link in the success toast — the team forwards/attaches it themselves. The customer email and CC fields have been removed from the form.
+
+The remaining automated emails are all internal/operational:
+
 | Scenario | To | CC | Body |
 |---|---|---|---|
-| Quote sent to customer | `payload.customerEmail` | `payload.ccEmail` if provided | Brief greeting, no Drive link (PDF is attached) |
 | Approval-needed notification | every email in `APPROVER_EMAILS` | — | Quote#, customer, amount, drafter, link to dashboard |
 | Draft rejected | drafter (column N) | — | Approver's note |
 | Daily follow-up digest | `afdhal@worq.space` | — | Bulleted list of stale quotes |
-
-The internal `it@worq.space` CC was removed. The location-email copy (sending to the WORQ outlet's own address) is currently commented out at [02 Sidebar.gs:169-171] for testing — re-enable when ready.
 
 ---
 

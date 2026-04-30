@@ -42,7 +42,7 @@ function saveDraftFromPending() {
 
     notifyApproversOfDraft(payload, drafter, draftRow);
 
-    return { success: true, draftRow: draftRow, pdfUrl: saved.url };
+    return { success: true, draftRow: draftRow, pdfUrl: saved.url, pdfId: saved.id };
 
   } catch (e) {
     console.error('saveDraftFromPending error:', e.message, e.stack);
@@ -50,14 +50,15 @@ function saveDraftFromPending() {
   }
 }
 
-// ── Approve a draft: re-render PDF, send to customer, flip status ──
-// Atomic from the user's perspective: clicking Approve & Send fires the
-// real send flow against the saved payload snapshot.
+// ── Approve a draft: re-render PDF, flip status (no auto-email) ──
+// Atomic from the user's perspective: clicking Approve generates the
+// final PDF against the saved payload snapshot. Team attaches it manually
+// to the existing customer thread.
 function approveAndSend(draftRow) {
   try {
     const me = getCurrentUser();
     if (!isApprover(me)) {
-      return { success: false, error: 'Only approvers can send drafts.' };
+      return { success: false, error: 'Only approvers can approve drafts.' };
     }
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -74,13 +75,6 @@ function approveAndSend(draftRow) {
     const payload = loadPayload(quoteNumber);
     if (!payload) throw new Error('No saved payload found for ' + quoteNumber);
 
-    if (!isValidEmail(payload.customerEmail)) {
-      return { success: false, error: 'Customer email is invalid: "' + (payload.customerEmail || '') + '". Edit the draft to fix.' };
-    }
-    if (!isValidCcList(payload.ccEmail)) {
-      return { success: false, error: 'CC email is invalid: "' + (payload.ccEmail || '') + '". Edit the draft to fix.' };
-    }
-
     const locations = getLocations();
     const loc = locations.find(function(l) { return l.code === payload.locationCode; });
     if (!loc) throw new Error('Location not found: ' + payload.locationCode);
@@ -88,14 +82,6 @@ function approveAndSend(draftRow) {
     const pdfBlob = renderPdfViaDoc(payload, loc);
     const saved = savePdf(pdfBlob, payload.quoteNumber, payload.customerName);
     const driveUrl = saved.url;
-
-    const internalCc = 'it@worq.space';
-    const userCc = (payload.ccEmail || '').trim();
-    const ccList = userCc ? internalCc + ',' + userCc : internalCc;
-    sendQuotationEmail(payload.customerEmail, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, false, ccList);
-    if (loc.email && loc.email !== payload.customerEmail) {
-      sendQuotationEmail(loc.email, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, true, '');
-    }
 
     // Update the draft row → flip status, replace doc link, leave M (drafter) intact
     sheet.getRange(draftRow, 6).setValue(driveUrl);
@@ -112,7 +98,7 @@ function approveAndSend(draftRow) {
     upsertPayload(payload.quoteNumber, payload.parentQuoteNumber || '', payload);
     logCustomItems(payload, 'Pending Customer');
 
-    return { success: true, pdfUrl: driveUrl };
+    return { success: true, pdfUrl: driveUrl, pdfId: saved.id };
 
   } catch (e) {
     console.error('approveAndSend error:', e.message, e.stack);
@@ -120,15 +106,16 @@ function approveAndSend(draftRow) {
   }
 }
 
-// ── Approve & send from preview (single-step, used by Approve & Send button
-//    on the editable draft screen). Bypasses the redundant "update draft then
-//    approve" dance — uses pendingPayload directly, ships it to the customer,
-//    flips the existing draft row to Pending Customer, trashes draft PDF.
+// ── Approve from preview (single-step, used by Approve button on the
+//    editable draft screen). Bypasses the redundant "update draft then
+//    approve" dance — uses pendingPayload directly, generates the final
+//    PDF, flips the existing draft row to Pending Customer, trashes draft PDF.
+//    No auto-emails — team attaches manually.
 function approveAndSendFromPending(draftRow) {
   try {
     const me = getCurrentUser();
     if (!isApprover(me)) {
-      return { success: false, error: 'Only approvers can send drafts.' };
+      return { success: false, error: 'Only approvers can approve drafts.' };
     }
 
     const cache = CacheService.getScriptCache();
@@ -136,12 +123,6 @@ function approveAndSendFromPending(draftRow) {
     if (!raw) throw new Error('Preview expired. Please generate the preview again.');
     const payload = JSON.parse(raw);
 
-    if (!isValidEmail(payload.customerEmail)) {
-      return { success: false, error: 'Customer email is invalid: "' + (payload.customerEmail || '') + '"' };
-    }
-    if (!isValidCcList(payload.ccEmail)) {
-      return { success: false, error: 'CC email is invalid: "' + (payload.ccEmail || '') + '"' };
-    }
     cache.remove('pendingPayload');
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -160,14 +141,6 @@ function approveAndSendFromPending(draftRow) {
     const pdfBlob = renderPdfViaDoc(payload, loc);
     const saved = savePdf(pdfBlob, payload.quoteNumber, payload.customerName);
     const driveUrl = saved.url;
-
-    const internalCc = 'it@worq.space';
-    const userCc = (payload.ccEmail || '').trim();
-    const ccList = userCc ? internalCc + ',' + userCc : internalCc;
-    sendQuotationEmail(payload.customerEmail, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, false, ccList);
-    if (loc.email && loc.email !== payload.customerEmail) {
-      sendQuotationEmail(loc.email, payload.customerName, payload.quoteNumber, pdfBlob, driveUrl, true, '');
-    }
 
     // Trash old draft PDF (we have its id stashed in the prior payload)
     const prior = loadPayload(payload.quoteNumber);
@@ -193,7 +166,7 @@ function approveAndSendFromPending(draftRow) {
     upsertPayload(payload.quoteNumber, payload.parentQuoteNumber || '', payload);
     logCustomItems(payload, 'Pending Customer');
 
-    return { success: true, pdfUrl: driveUrl };
+    return { success: true, pdfUrl: driveUrl, pdfId: saved.id };
 
   } catch (e) {
     console.error('approveAndSendFromPending error:', e.message, e.stack);
@@ -372,7 +345,7 @@ function updateDraftFromPending(draftRow) {
     payload._draftPdfId = saved.id;
     upsertPayload(payload.quoteNumber, payload.parentQuoteNumber || '', payload);
 
-    return { success: true, draftRow: draftRow, pdfUrl: saved.url };
+    return { success: true, draftRow: draftRow, pdfUrl: saved.url, pdfId: saved.id };
 
   } catch (e) {
     console.error('updateDraftFromPending error:', e.message, e.stack);

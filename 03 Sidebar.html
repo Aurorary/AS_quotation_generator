@@ -128,12 +128,6 @@
 
     <label>Address</label>
     <textarea id="customerAddress" placeholder="Full address (multi-line OK)" style="min-height:56px;"></textarea>
-
-    <label>Email (for PDF delivery) *</label>
-    <input type="email" id="customerEmail" placeholder="customer@example.com">
-
-    <label>CC Email (optional)</label>
-    <input type="email" id="ccEmail" placeholder="cc@example.com">
   </div>
 
 </div>
@@ -182,7 +176,7 @@
 <div id="previewPanel" style="display:none; margin-top:10px;">
   <div style="display:flex; gap:6px; margin-bottom:8px;">
     <button id="backBtn" onclick="backToForm()" style="flex:1; padding:8px; background:#888; color:#fff; border:none; border-radius:4px; font-size:12px; cursor:pointer;">← Back & Edit</button>
-    <button id="confirmBtn" onclick="confirmQuotation()" style="flex:2; padding:8px; background:#2b7d2b; color:#fff; border:none; border-radius:4px; font-size:13px; font-weight:bold; cursor:pointer;">Confirm & Send</button>
+    <button id="confirmBtn" onclick="confirmQuotation()" style="flex:2; padding:8px; background:#2b7d2b; color:#fff; border:none; border-radius:4px; font-size:13px; font-weight:bold; cursor:pointer;">Generate</button>
   </div>
   <iframe id="previewFrame" style="width:100%; height:600px; border:1px solid #ccc; border-radius:3px;"></iframe>
 </div>
@@ -478,8 +472,6 @@ function recalcTotals() {
 function buildPayload() {
   var customerName = document.getElementById('customerName').value.trim();
   if (!customerName) { setStatus('Please enter a company name.', 'error'); return null; }
-  var customerEmail = document.getElementById('customerEmail').value.trim();
-  if (!customerEmail) { setStatus('Please enter a customer email address.', 'error'); return null; }
   if (addedItems.length === 0) { setStatus('Please add at least one item.', 'error'); return null; }
 
   var isRevision = document.getElementById('isRevision').checked;
@@ -514,8 +506,6 @@ function buildPayload() {
     customerName: customerName,
     work: document.getElementById('workDesc').value.trim(),
     customerAddress: document.getElementById('customerAddress').value.trim(),
-    customerEmail: document.getElementById('customerEmail').value.trim(),
-    ccEmail: document.getElementById('ccEmail').value.trim(),
     items: addedItems.map(function(item) {
       return {
         description: item.description,
